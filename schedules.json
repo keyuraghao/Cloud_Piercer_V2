@@ -1,0 +1,22 @@
+{
+  "20260227231328204004": {
+    "id": "20260227231328204004",
+    "name": "test-1",
+    "keywords": "microsoft",
+    "api_key": "fc247c3bba251126354cab7a0ba4c92a",
+    "interval_hours": 24,
+    "enabled": true,
+    "created": "2026-02-27T23:13:28.204027",
+    "last_run": null
+  },
+  "20260227231456516998": {
+    "id": "20260227231456516998",
+    "name": "test-2",
+    "keywords": "netflix",
+    "api_key": "fc247c3bba251126354cab7a0ba4c92a",
+    "interval_hours": 24,
+    "enabled": true,
+    "created": "2026-02-27T23:14:56.517018",
+    "last_run": null
+  }
+}
