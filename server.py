@@ -24,6 +24,7 @@ import os
 import queue
 import shutil
 import sys
+import multiprocessing
 import threading
 import time
 import webbrowser
@@ -52,14 +53,11 @@ except ImportError:
 
 # ── Cloud Pearser internals ────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent))
-from cloud_pearser.api import fetch_all_keywords, flatten_to_lines, load_cached
 from cloud_pearser.config import (
     API_KEY as _DEFAULT_API_KEY,
     API_OFFSETS as _DEFAULT_OFFSETS,
     EXTENSIONS_FILE,
     KEYWORDS_FILE,
-    PROVIDERS,
-    TMP_DIR,
 )
 from cloud_pearser.parsers import build_provider_csvs, build_unique, enumerate_azure
 
@@ -79,24 +77,9 @@ def _add_cors(r):
     return r
 # CORS handled via after_request
 
-# Active scan state (one scan at a time)
-_scan_lock  = threading.Lock()
-_scan_state: dict[str, Any] = {
-    "running": False,
-    "finished": False,
-    "error": None,
-    "progress": 0,          # 0-100
-    "stage": "",
-    "timestamp": None,
-    "output_dir": None,
-    "counts": {},
-    "ext_counts": {},
-    "blob_urls": [],
-    "keyword_counts": {},
-}
-
-# Per-scan log queue (consumed by SSE stream)
-_log_queue: queue.Queue = queue.Queue()
+# Active scans – keyed by scan_id (= timestamp string).
+# Each entry: {"id", "state", "sse_queue", "process"}
+_active_scans: dict[str, dict] = {}
 
 # Persistent scan history (in-memory; survives page refreshes in same session)
 _history: list[dict] = []
@@ -169,8 +152,6 @@ def _run_scheduled_scan(sid: str) -> None:
     sched = _schedules.get(sid)
     if not sched or not sched.get("enabled"):
         return
-    if _scan_state["running"]:
-        return   # skip if a scan is already in progress
     keywords = [k.strip() for k in sched.get("keywords", "").splitlines() if k.strip()]
     if not keywords:
         return
@@ -178,106 +159,14 @@ def _run_scheduled_scan(sid: str) -> None:
     offsets = sched.get("offsets") or list(_DEFAULT_OFFSETS)
     _schedules[sid]["last_run"] = datetime.now().isoformat()
     _save_schedules()
-    t = threading.Thread(
-        target=_run_scan,
-        args=(keywords, api_key, offsets, False, False),
-        daemon=True,
-    )
-    t.start()
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Logging bridge  –  redirect logger output into the SSE queue
-# ═══════════════════════════════════════════════════════════════════════════
-
-class _QueueLogger:
-    """Captures log lines and puts them in the SSE queue."""
-
-    def push(self, msg: str, level: str = "info") -> None:
-        _log_queue.put({"msg": msg, "level": level})
-        # Also print to terminal
-        print(msg)
-
-    def info(self, msg):    self.push(msg, "info")
-    def ok(self, msg):      self.push(msg, "ok")
-    def warn(self, msg):    self.push(msg, "warn")
-    def error(self, msg):   self.push(msg, "error")
-    def banner(self, msg):  self.push(f"── {msg} ──", "banner")
-    def section(self, msg): self.push(f"▸ {msg}", "section")
-    def step(self, n, total, msg):
-        pct = int(n / total * 100) if total else 0
-        self.push(f"  [{n}/{total}] {pct}%  {msg}", "step")
-        _scan_state["progress"] = max(_scan_state["progress"], pct)
-
-# Monkey-patch the logger module so all internal code goes to SSE
-import cloud_pearser.utils.logger as _logger_mod
-_qlog = _QueueLogger()
-_logger_mod.info    = _qlog.info
-_logger_mod.ok      = _qlog.ok
-_logger_mod.warn    = _qlog.warn
-_logger_mod.error   = _qlog.error
-_logger_mod.banner  = _qlog.banner
-_logger_mod.section = _qlog.section
-_logger_mod.step    = _qlog.step
+    _start_scan_internal(keywords, api_key, offsets)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _clean_tmp() -> None:
-    stale = [
-        "output_data_1.txt", "output_data.json", "output_data.txt",
-        "display.txt", "display1.txt", "display2.txt",
-        "AWS_output_data_1.txt",   "AWS_output_data_2.txt",
-        "Azure_output_data_1.txt", "Azure_output_data_2.txt",
-        "GCP_output_data_1.txt",   "GCP_output_data_2.txt",
-        "DOS_output_data_1.txt",   "DOS_output_data_2.txt",
-        "AE_1.txt", "AE_2.txt", "AE_3.txt", "AE_4.txt",
-    ]
-    for name in stale:
-        p = TMP_DIR / name
-        if p.exists():
-            p.unlink()
 
-
-def _count_domains(unique_file: Path) -> dict[str, int]:
-    text = unique_file.read_text()
-    return {name: text.count(domain) for name, domain in PROVIDERS.items()}
-
-
-def _compute_keyword_counts(raw: dict) -> dict:
-    """Count unique files per keyword per provider from raw API JSON."""
-    result = {}
-    for keyword, offsets in raw.items():
-        counts = {p: 0 for p in PROVIDERS}
-        seen: set = set()
-        for offset_data in offsets.values():
-            for f in offset_data.get("files", []):
-                fid = f.get("id") or f.get("url", "")
-                if fid in seen:
-                    continue
-                seen.add(fid)
-                val = f.get("bucket", "") + " " + f.get("url", "")
-                for prov, domain in PROVIDERS.items():
-                    if domain in val:
-                        counts[prov] += 1
-                        break
-        result[keyword] = counts
-    return result
-
-
-def _save_summary(counts: dict, keywords: list, timestamp: str,
-                  ext_counts: dict, keyword_counts: dict, output_dir: Path) -> None:
-    data = {
-        "timestamp": timestamp,
-        "total_keywords": len(keywords),
-        "counts": counts,
-        "total": sum(counts.values()),
-        "extCounts": ext_counts,
-        "keyword_counts": keyword_counts,
-    }
-    (output_dir / f"summary_{timestamp}.json").write_text(json.dumps(data, indent=2))
 
 
 def _list_output_dirs() -> list[dict]:
@@ -315,159 +204,287 @@ def _get_output_dir(ts: str) -> Path | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Scan worker  (runs in background thread)
+# Scan pipeline  –  child process + bridge thread
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _run_scan(
-    keywords: list[str],
+def _run_scan_process(
+    keywords: list,
     api_key: str,
-    offsets: list[int],
+    offsets: list,
     skip_azure_enum: bool,
     use_cache: bool,
+    comm_q,            # multiprocessing.Queue
+    timestamp: str,
+    output_dir_str: str,
+    base_dir_str: str,
 ) -> None:
-    global _scan_state
+    """
+    Full scan pipeline that runs inside a child process.
+    All communication back to the parent goes through comm_q:
+      {type:"log",      msg:str, level:str}
+      {type:"progress", value:int, stage:str}
+      {type:"done",     counts, ext_counts, blob_urls, keyword_counts, timestamp, output_dir, keywords}
+      {type:"error",    error:str}
+    """
+    import sys as _sys, json as _json, shutil as _sh
+    from pathlib import Path as _P
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_dir = BASE_DIR / "Outputs" / f"{timestamp}_Outputs"
+    base_dir   = _P(base_dir_str)
+    output_dir = _P(output_dir_str)
+
+    # ── Per-process logger writes to comm_q ────────────────────────────────
+    class _PL:
+        def _q(self, msg, level):
+            try: comm_q.put_nowait({"type": "log", "msg": str(msg), "level": level})
+            except Exception: pass
+        def info(self, m):    self._q(m, "info")
+        def ok(self, m):      self._q(m, "ok")
+        def warn(self, m):    self._q(m, "warn")
+        def error(self, m):   self._q(m, "error")
+        def banner(self, m):  self._q(f"── {m} ──", "banner")
+        def section(self, m): self._q(f"▸ {m}", "section")
+        def step(self, n, total, msg):
+            pct = int(n / total * 100) if total else 0
+            self._q(f"  [{n}/{total}] {pct}%  {msg}", "step")
+            try: comm_q.put_nowait({"type": "progress", "value": pct})
+            except Exception: pass
+
+    _sys.path.insert(0, base_dir_str)
+    import cloud_pearser.utils.logger as _lmod
+    _pl = _PL()
+    _lmod.info = _pl.info; _lmod.ok = _pl.ok; _lmod.warn = _pl.warn
+    _lmod.error = _pl.error; _lmod.banner = _pl.banner
+    _lmod.section = _pl.section; _lmod.step = _pl.step
+
+    def _prog(v, stage=""):
+        try: comm_q.put_nowait({"type": "progress", "value": v, "stage": stage})
+        except Exception: pass
+
+    from cloud_pearser.api import fetch_all_keywords, flatten_to_lines, load_cached
+    import cloud_pearser.config as _cfg
+    from cloud_pearser.config import EXTENSIONS_FILE, KEYWORDS_FILE, PROVIDERS, TMP_DIR
+    from cloud_pearser.parsers import build_provider_csvs, build_unique, enumerate_azure
+
+    orig_key, orig_offsets = _cfg.API_KEY, _cfg.API_OFFSETS
+    # Per-scan tmp dir – avoids file conflicts between concurrent scans
+    scan_tmp = output_dir / "_tmp"
 
     try:
-        # ── Setup ─────────────────────────────────────────────────────────
-        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        scan_tmp.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
-        _clean_tmp()
+        _cfg.API_KEY = api_key
+        _cfg.API_OFFSETS = offsets
 
-        _scan_state.update({
-            "running": True, "finished": False, "error": None,
-            "progress": 0, "stage": "setup", "timestamp": timestamp,
-            "output_dir": str(output_dir), "counts": {},
-            "ext_counts": {}, "blob_urls": [], "keyword_counts": {},
-        })
-
-        # Temporarily override API key from request
-        import cloud_pearser.config as cfg
-        original_key = cfg.API_KEY
-        original_offsets = cfg.API_OFFSETS
-        cfg.API_KEY = api_key
-        cfg.API_OFFSETS = offsets
-
-        # Copy support files
         for src in [KEYWORDS_FILE, EXTENSIONS_FILE]:
-            if (BASE_DIR / src).exists():
-                shutil.copy2(BASE_DIR / src, output_dir / src.name)
+            p = base_dir / src
+            if p.exists():
+                _sh.copy2(p, output_dir / _P(src).name)
 
-        _qlog.banner("Cloud Pearser v2.0.0")
-        _qlog.info(f"Keywords: {len(keywords)}")
-        _qlog.info(f"API offsets: {offsets}")
-        _qlog.info(f"Output: {output_dir.name}")
+        _pl.banner("Cloud Pearser v2.0.0")
+        _pl.info(f"Keywords : {len(keywords)}")
+        _pl.info(f"Offsets  : {offsets}")
+        _prog(5, "setup")
 
-        flat_file = TMP_DIR / "output_data_1.txt"
+        flat_file = scan_tmp / "output_data_1.txt"
 
         # ── API fetch ──────────────────────────────────────────────────────
-        _scan_state["stage"] = "fetching"
+        _prog(10, "fetching")
         if use_cache:
-            _qlog.info("Loading cached API data …")
+            _pl.info("Loading cached API data …")
             raw = load_cached(TMP_DIR)
             if raw is None:
                 raise RuntimeError("No cached data found. Run without use_cache first.")
             flatten_to_lines(raw, flat_file)
         else:
-            raw = fetch_all_keywords(keywords, TMP_DIR)
+            raw = fetch_all_keywords(keywords, scan_tmp)
             flatten_to_lines(raw, flat_file)
+        _prog(60, "fetching")
 
-        _scan_state["progress"] = 60
-        keyword_counts = _compute_keyword_counts(raw) if raw else {}
-        _scan_state["keyword_counts"] = keyword_counts
+        # ── Keyword counts ─────────────────────────────────────────────────
+        kw_counts: dict = {}
+        if raw:
+            for kw, offsets_data in raw.items():
+                c = {p: 0 for p in PROVIDERS}
+                seen: set = set()
+                for od in offsets_data.values():
+                    for f in od.get("files", []):
+                        fid = f.get("id") or f.get("url", "")
+                        if fid in seen: continue
+                        seen.add(fid)
+                        val = f.get("bucket", "") + " " + f.get("url", "")
+                        for prov, domain in PROVIDERS.items():
+                            if domain in val: c[prov] += 1; break
+                kw_counts[kw] = c
 
         # ── Unique bucket list ─────────────────────────────────────────────
-        _scan_state["stage"] = "unique"
+        _prog(65, "unique")
         unique_file = output_dir / f"Unique_{timestamp}.txt"
         build_unique(flat_file, unique_file)
-        _scan_state["progress"] = 70
 
         # ── Per-provider CSVs ──────────────────────────────────────────────
-        _scan_state["stage"] = "providers"
+        _prog(75, "providers")
         build_provider_csvs(flat_file, output_dir, timestamp)
-        _scan_state["progress"] = 85
-
-        # Count domains
-        counts = _count_domains(unique_file)
-        _scan_state["counts"] = counts
+        txt    = unique_file.read_text()
+        counts = {name: txt.count(domain) for name, domain in PROVIDERS.items()}
+        _prog(85, "providers")
 
         # ── Azure Enumeration ──────────────────────────────────────────────
         ext_counts: dict = {}
-        blob_urls: list = []
-
+        blob_urls:  list = []
         if not skip_azure_enum:
-            _scan_state["stage"] = "azure_enum"
+            _prog(87, "azure_enum")
             azure_csv = output_dir / f"Azure_{timestamp}.csv"
             if azure_csv.exists() and azure_csv.stat().st_size > 0:
-                ae_result = enumerate_azure(
+                ae = enumerate_azure(
                     azure_csv=azure_csv,
-                    ext_file=BASE_DIR / EXTENSIONS_FILE,
+                    ext_file=base_dir / EXTENSIONS_FILE,
                     output_dir=output_dir,
                     timestamp=timestamp,
-                    tmp_dir=TMP_DIR,
+                    tmp_dir=scan_tmp,
                 )
-                ext_counts = ae_result.get("ext_counts", {})
-                # Read blob URLs from file
+                ext_counts = ae.get("ext_counts", {})
                 url_file = output_dir / f"URLs_{timestamp}.txt"
                 if url_file.exists():
                     blob_urls = [l.strip() for l in url_file.read_text().splitlines() if l.strip()]
             else:
-                _qlog.warn("Azure CSV empty – skipping enumeration.")
+                _pl.warn("Azure CSV empty – skipping enumeration.")
 
-        _scan_state["ext_counts"] = ext_counts
-        _scan_state["blob_urls"] = blob_urls[:200]  # cap for memory
-        _scan_state["progress"] = 98
+        _prog(98, "summarizing")
 
-        # ── Summary ────────────────────────────────────────────────────────
-        _save_summary(counts, keywords, timestamp, ext_counts, keyword_counts, output_dir)
-        _scan_state["stage"] = "done"
-        _scan_state["progress"] = 100
+        # ── Summary JSON ───────────────────────────────────────────────────
+        (output_dir / f"summary_{timestamp}.json").write_text(_json.dumps({
+            "timestamp":      timestamp,
+            "total_keywords": len(keywords),
+            "counts":         counts,
+            "total":          sum(counts.values()),
+            "extCounts":      ext_counts,
+            "keyword_counts": kw_counts,
+        }, indent=2))
 
         total = sum(counts.values())
-        _qlog.ok(f"AWS: {counts.get('AWS',0)}")
-        _qlog.ok(f"Azure: {counts.get('Azure',0)}")
-        _qlog.ok(f"GCP: {counts.get('GCP',0)}")
-        _qlog.ok(f"DigitalOcean: {counts.get('DigitalOcean',0)}")
-        _qlog.ok(f"TOTAL: {total}")
-        _qlog.banner("Scan Finished")
+        _pl.ok(f"AWS: {counts.get('AWS', 0)}")
+        _pl.ok(f"Azure: {counts.get('Azure', 0)}")
+        _pl.ok(f"GCP: {counts.get('GCP', 0)}")
+        _pl.ok(f"DigitalOcean: {counts.get('DigitalOcean', 0)}")
+        _pl.ok(f"TOTAL: {total}")
+        _pl.banner("Scan Finished")
 
-        # Add to history
-        _history.append({
-            "ts": timestamp,
-            "keywords": len(keywords),
-            "kw_sample": keywords[0] if keywords else "",
-            "counts": counts,
-            "total": total,
-            "output_dir": str(output_dir),
-            "status": "ok",
-        })
+        comm_q.put({"type": "done", "counts": counts, "ext_counts": ext_counts,
+                    "blob_urls": blob_urls[:200], "keyword_counts": kw_counts,
+                    "timestamp": timestamp, "output_dir": str(output_dir),
+                    "keywords": keywords})
 
     except Exception as exc:
-        _scan_state["error"] = str(exc)
-        _scan_state["stage"] = "error"
-        _qlog.error(f"Scan failed: {exc}")
-        if _history and _history[-1].get("ts") == timestamp:
-            _history[-1]["status"] = "error"
-        else:
-            _history.append({
-                "ts": timestamp, "keywords": len(keywords),
-                "kw_sample": keywords[0] if keywords else "",
-                "counts": {}, "total": 0,
-                "output_dir": str(output_dir), "status": "error",
-            })
+        _pl.error(f"Scan failed: {exc}")
+        comm_q.put({"type": "error", "error": str(exc)})
 
     finally:
-        # Restore original config values
+        try: _cfg.API_KEY = orig_key; _cfg.API_OFFSETS = orig_offsets
+        except Exception: pass
+        try: _sh.rmtree(scan_tmp, ignore_errors=True)
+        except Exception: pass
+
+
+def _bridge_worker(scan_id: str, comm_q) -> None:
+    """
+    Daemon thread in the main process. Reads typed messages from the child's
+    comm_q, updates _active_scans[scan_id]['state'], and feeds the SSE queue.
+    """
+    scan = _active_scans.get(scan_id)
+    if not scan:
+        return
+    state = scan["state"]
+    sse_q = scan["sse_queue"]
+
+    while True:
         try:
-            cfg.API_KEY = original_key
-            cfg.API_OFFSETS = original_offsets
+            msg = comm_q.get(timeout=30)
         except Exception:
-            pass
-        _scan_state["running"] = False
-        _scan_state["finished"] = True
-        _log_queue.put({"msg": "__DONE__", "level": "done"})
+            proc = scan.get("process")
+            if proc and not proc.is_alive():
+                if state.get("running"):
+                    state.update({"running": False, "finished": True,
+                                  "error": "Process exited unexpectedly"})
+                    sse_q.put({"msg": "__DONE__", "level": "done"})
+                break
+            continue
+
+        mtype = msg.get("type")
+        if mtype == "log":
+            sse_q.put({"msg": msg.get("msg", ""), "level": msg.get("level", "info")})
+            print(msg.get("msg", ""))
+
+        elif mtype == "progress":
+            state["progress"] = msg.get("value", state["progress"])
+            if "stage" in msg:
+                state["stage"] = msg["stage"]
+
+        elif mtype == "done":
+            counts = msg.get("counts", {})
+            state.update({"running": False, "finished": True, "error": None,
+                          "progress": 100, "stage": "done", "counts": counts,
+                          "ext_counts": msg.get("ext_counts", {}),
+                          "blob_urls": msg.get("blob_urls", []),
+                          "keyword_counts": msg.get("keyword_counts", {}),
+                          "timestamp": msg.get("timestamp", state["timestamp"])})
+            kws = msg.get("keywords", [])
+            _history.append({"ts": msg.get("timestamp", state["timestamp"]),
+                             "keywords": len(kws), "kw_sample": kws[0] if kws else "",
+                             "counts": counts, "total": sum(counts.values()),
+                             "output_dir": msg.get("output_dir", state["output_dir"]),
+                             "status": "ok"})
+            sse_q.put({"msg": "__DONE__", "level": "done"})
+            break
+
+        elif mtype == "error":
+            kws = state.get("keywords", [])
+            state.update({"running": False, "finished": True,
+                          "error": msg.get("error", "Unknown error"), "stage": "error"})
+            _history.append({"ts": state["timestamp"], "keywords": len(kws),
+                             "kw_sample": kws[0] if kws else "",
+                             "counts": {}, "total": 0,
+                             "output_dir": state["output_dir"], "status": "error"})
+            sse_q.put({"msg": "__DONE__", "level": "done"})
+            break
+
+
+def _start_scan_internal(
+    keywords: list,
+    api_key: str,
+    offsets: list,
+    skip_azure_enum: bool = False,
+    use_cache: bool = False,
+) -> str:
+    """Create dirs, spawn child process and bridge thread. Returns scan_id."""
+    timestamp  = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = BASE_DIR / "Outputs" / f"{timestamp}_Outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    scan_id = timestamp
+    sse_q   = queue.Queue()
+    comm_q  = multiprocessing.Queue()
+    state   = {
+        "running": True, "finished": False, "error": None,
+        "progress": 0, "stage": "starting",
+        "timestamp": timestamp, "output_dir": str(output_dir),
+        "counts": {}, "ext_counts": {}, "blob_urls": [],
+        "keyword_counts": {}, "keywords": keywords,
+    }
+    _active_scans[scan_id] = {"id": scan_id, "state": state,
+                               "sse_queue": sse_q, "process": None}
+
+    proc = multiprocessing.Process(
+        target=_run_scan_process,
+        args=(keywords, api_key, offsets, skip_azure_enum, use_cache,
+              comm_q, timestamp, str(output_dir), str(BASE_DIR)),
+        daemon=True,
+    )
+    proc.start()
+    _active_scans[scan_id]["process"] = proc
+
+    threading.Thread(target=_bridge_worker, args=(scan_id, comm_q),
+                     daemon=True).start()
+    return scan_id
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -476,8 +493,27 @@ def _run_scan(
 
 @app.route("/api/status")
 def api_status():
-    """Current scan state snapshot."""
-    return jsonify(_scan_state)
+    """Current scan state snapshot. ?scan_id=X returns that scan's state."""
+    scan_id = request.args.get("scan_id")
+    if scan_id:
+        scan = _active_scans.get(scan_id)
+        if not scan:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify(scan["state"])
+    # No scan_id → return aggregate view
+    running = [
+        {"id": sid, **s["state"]}
+        for sid, s in _active_scans.items()
+        if s["state"].get("running")
+    ]
+    # Latest finished scan state (for backward-compat with single-scan dashboard)
+    latest: dict = {}
+    for entry in reversed(_history):
+        sc = _active_scans.get(entry.get("ts", ""))
+        if sc:
+            latest = sc["state"]
+            break
+    return jsonify({"running_scans": running, "any_running": bool(running), **latest})
 
 
 @app.route("/api/config", methods=["GET"])
@@ -506,81 +542,77 @@ def api_config_save():
 
 @app.route("/api/scan/start", methods=["POST"])
 def api_scan_start():
-    """Start a scan in a background thread."""
-    if _scan_state["running"]:
-        return jsonify({"error": "A scan is already running."}), 409
-
+    """Start a new scan (multiple concurrent scans supported)."""
     data = request.get_json(force=True)
     raw_kws = data.get("keywords", "")
     keywords = [k.strip() for k in raw_kws.splitlines() if k.strip()]
     if not keywords:
-        # Fall back to keywords.txt
         kw_path = BASE_DIR / KEYWORDS_FILE
         if kw_path.exists():
             keywords = [k.strip() for k in kw_path.read_text().splitlines() if k.strip()]
     if not keywords:
         return jsonify({"error": "No keywords provided."}), 400
 
-    api_key          = data.get("api_key", _DEFAULT_API_KEY).strip()
-    raw_offsets      = data.get("offsets", "0,1000")
-    skip_azure_enum  = bool(data.get("skip_azure_enum", False))
-    use_cache        = bool(data.get("use_cache", False))
+    api_key         = data.get("api_key", _DEFAULT_API_KEY).strip()
+    raw_offsets     = data.get("offsets", "0,1000")
+    skip_azure_enum = bool(data.get("skip_azure_enum", False))
+    use_cache       = bool(data.get("use_cache", False))
 
     try:
         offsets = [int(x.strip()) for x in str(raw_offsets).split(",") if x.strip()]
     except ValueError:
         return jsonify({"error": "Offsets must be comma-separated integers."}), 400
 
-    # Drain old log queue
-    while not _log_queue.empty():
-        try:
-            _log_queue.get_nowait()
-        except queue.Empty:
-            break
-
-    t = threading.Thread(
-        target=_run_scan,
-        args=(keywords, api_key, offsets, skip_azure_enum, use_cache),
-        daemon=True,
-    )
-    t.start()
-    return jsonify({"ok": True, "message": f"Scan started with {len(keywords)} keywords."})
+    scan_id = _start_scan_internal(keywords, api_key, offsets, skip_azure_enum, use_cache)
+    return jsonify({"ok": True, "scan_id": scan_id,
+                    "message": f"Scan started with {len(keywords)} keywords."})
 
 
 @app.route("/api/scan/stop", methods=["POST"])
 def api_scan_stop():
-    """
-    Graceful stop is hard with threading; we just set a flag.
-    Real stop would require subprocess management.
-    """
-    return jsonify({"ok": True, "message": "Stop requested (current request will complete)."})
+    """Terminate a specific scan or all running scans."""
+    data = request.get_json(force=True) or {}
+    scan_id = data.get("scan_id")
+    if scan_id:
+        targets = [_active_scans[scan_id]] if scan_id in _active_scans else []
+    else:
+        targets = [s for s in _active_scans.values() if s["state"].get("running")]
+    for scan in targets:
+        proc = scan.get("process")
+        if proc and proc.is_alive():
+            proc.terminate()
+        scan["state"].update({"running": False, "finished": True, "error": "Stopped by user"})
+        try:
+            scan["sse_queue"].put_nowait({"msg": "__DONE__", "level": "done"})
+        except Exception:
+            pass
+    return jsonify({"ok": True, "stopped": len(targets)})
 
 
 @app.route("/api/logs")
 def api_logs_sse():
-    """
-    Server-Sent Events stream.  Browser connects once; log lines arrive in real-time.
-    """
+    """Server-Sent Events stream for a specific scan. Requires ?scan_id=XXX."""
+    scan_id = request.args.get("scan_id", "")
+    scan = _active_scans.get(scan_id)
+    if not scan:
+        return jsonify({"error": "scan_id not found"}), 404
+    sse_q = scan["sse_queue"]
+
     def generate():
         yield "data: {\"msg\": \"Connected to log stream.\", \"level\": \"info\"}\n\n"
         while True:
             try:
-                item = _log_queue.get(timeout=30)
-                payload = json.dumps(item)
-                yield f"data: {payload}\n\n"
+                item = sse_q.get(timeout=30)
+                yield f"data: {json.dumps(item)}\n\n"
                 if item.get("level") == "done":
                     break
             except queue.Empty:
-                # heartbeat so connection stays alive
                 yield ": heartbeat\n\n"
 
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

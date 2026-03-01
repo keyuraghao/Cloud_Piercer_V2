@@ -1,849 +1,1850 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Cloud Pearser</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --ink:#e8eaf6;--ink2:#7986cb;--ink3:#3d4578;
-  --paper:#080b14;--card:#0d1120;--card2:#121829;
-  --edge:#1a2240;--edge2:#242e50;
-  --g:#00e676;--b:#40c4ff;--y:#ffea00;--r:#ff5252;
-  --o:#ff9100;--az:#29b6f6;--gc:#66bb6a;--do:#5c6bc0;
-  --mono:'Space Mono',monospace;--sans:'Syne',sans-serif;--rad:4px;
-}
-[data-theme="light"]{
-  --ink:#1a1f3a;--ink2:#3d4578;--ink3:#8892c8;
-  --paper:#f0f2fc;--card:#ffffff;--card2:#e8eaf6;
-  --edge:#c5cae9;--edge2:#9fa8da;
-}
-[data-theme="light"] body::after{background:none}
-[data-theme="light"] .nav-item:hover{background:rgba(0,0,0,.04)}
-[data-theme="light"] .nav-item.active{background:rgba(0,230,118,.08)}
-[data-theme="light"] tr:hover td{background:rgba(0,0,0,.02)}
-html{background:var(--paper);color:var(--ink);font-family:var(--sans);scroll-behavior:smooth}
-body{min-height:100vh;overflow-x:hidden}
-button{font-family:var(--sans);cursor:pointer;border:none;background:none}
-input,textarea,select{font-family:var(--mono);background:var(--paper);color:var(--ink);border:1px solid var(--edge);border-radius:var(--rad);padding:8px 12px;font-size:.8rem}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--g)}
-textarea{resize:vertical}
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:var(--paper)}
-::-webkit-scrollbar-thumb{background:var(--edge2);border-radius:3px}
-body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px)}
-.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-.sidebar{background:var(--card);border-right:1px solid var(--edge);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
-.sb-head{padding:22px 18px 14px;border-bottom:1px solid var(--edge)}
-.logo{display:flex;align-items:center;gap:9px;margin-bottom:3px}
-.logo-diamond{width:20px;height:20px;background:var(--g);clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);flex-shrink:0}
-.logo-text{font-size:1rem;font-weight:800;letter-spacing:-.5px}
-.logo-text em{color:var(--g);font-style:normal}
-.sb-ver{font-family:var(--mono);font-size:.58rem;color:var(--ink3);margin-left:29px}
-.sb-status{margin:10px 18px 0;padding:7px 10px;background:var(--card2);border:1px solid var(--edge);border-radius:var(--rad);display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.62rem}
-.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--ink3)}
-.status-dot.running{background:var(--g);animation:pulse 1.2s ease-in-out infinite}
-.status-dot.done{background:var(--g)}
-.status-dot.error{background:var(--r)}
-@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,230,118,.4)}50%{opacity:.7;box-shadow:0 0 0 6px rgba(0,230,118,0)}}
-.nav{padding:14px 0;flex:1}
-.nav-section{font-family:var(--mono);font-size:.53rem;letter-spacing:.2em;text-transform:uppercase;color:var(--ink3);padding:0 18px 5px;margin-top:10px}
-.nav-item{display:flex;align-items:center;gap:9px;padding:8px 18px;cursor:pointer;font-size:.8rem;font-weight:600;color:var(--ink3);border-left:2px solid transparent;transition:.1s}
-.nav-item:hover{color:var(--ink);background:rgba(255,255,255,.02)}
-.nav-item.active{color:var(--g);border-left-color:var(--g);background:rgba(0,230,118,.04)}
-.nav-item .ni{font-size:.85rem;width:14px;text-align:center}
-.nav-badge{margin-left:auto;font-family:var(--mono);font-size:.57rem;background:var(--card2);border:1px solid var(--edge);padding:1px 5px;border-radius:2px}
-.sb-foot{padding:10px 18px;border-top:1px solid var(--edge);font-family:var(--mono);font-size:.57rem;color:var(--ink3);line-height:1.8}
-.main{display:flex;flex-direction:column;min-width:0}
-.topbar{background:var(--card);border-bottom:1px solid var(--edge);padding:0 26px;height:50px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-.topbar-left{display:flex;align-items:center;gap:14px}
-.page-title{font-weight:800;font-size:.9rem;letter-spacing:-.3px}
-.breadcrumb{font-family:var(--mono);font-size:.6rem;color:var(--ink3)}
-.topbar-right{display:flex;align-items:center;gap:8px}
-.content{padding:22px 26px 60px;flex:1}
-.view{display:none}.view.active{display:block}
-.slabel{font-family:var(--mono);font-size:.58rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3);margin-bottom:9px;display:flex;align-items:center;gap:7px}
-.slabel::before{content:'//';color:var(--g)}
-.card{background:var(--card);border:1px solid var(--edge);border-radius:var(--rad);padding:16px 18px}
-.mt{margin-top:13px}
-.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.ct{font-weight:700;font-size:.85rem}
-.cb{font-family:var(--mono);font-size:.57rem;padding:2px 7px;background:var(--card2);border:1px solid var(--edge);border-radius:2px;color:var(--ink3)}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
-.g3{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
-@media(max-width:1200px){.g3{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:900px){.g2{grid-template-columns:1fr}.g3{grid-template-columns:1fr 1fr}}
-.stat{background:var(--card);border:1px solid var(--edge);border-radius:var(--rad);padding:14px 16px;position:relative;overflow:hidden;transition:.15s}
-.stat::after{content:'';position:absolute;left:0;top:0;bottom:0;width:2px}
-.stat:hover{border-color:var(--edge2);transform:translateY(-1px)}
-.stat.total::after{background:var(--g)}.stat.aws::after{background:var(--o)}.stat.azure::after{background:var(--az)}.stat.gcp::after{background:var(--gc)}.stat.doo::after{background:var(--do)}
-.stat-lbl{font-family:var(--mono);font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px}
-.stat-val{font-size:1.8rem;font-weight:800;line-height:1;letter-spacing:-1px}
-.stat-sub{font-family:var(--mono);font-size:.58rem;color:var(--ink3);margin-top:4px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--rad);font-family:var(--sans);font-size:.78rem;font-weight:700;transition:.1s;letter-spacing:.3px}
-.btn-primary{background:var(--g);color:#000}.btn-primary:hover{filter:brightness(1.1)}.btn-primary:disabled{background:var(--edge);color:var(--ink3);cursor:not-allowed;filter:none}
-.btn-danger{background:rgba(255,82,82,.12);border:1px solid var(--r);color:var(--r)}.btn-danger:hover{background:rgba(255,82,82,.2)}
-.btn-ghost{background:transparent;border:1px solid var(--edge);color:var(--ink3)}.btn-ghost:hover{border-color:var(--edge2);color:var(--ink)}
-.btn-sm{padding:5px 11px;font-size:.7rem}
-.fg{display:flex;flex-direction:column;gap:4px}
-.fg.full{grid-column:1/-1}
-.flabel{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
-input.fi,textarea.fi,select.fi{width:100%}
-.prog{height:2px;background:var(--edge);border-radius:2px;overflow:hidden;margin-top:9px}
-.prog-fill{height:100%;background:var(--g);transition:width .4s ease;width:0%}
-.prog-fill.ind{width:40%!important;animation:slide 1.3s ease-in-out infinite}
-@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-.term{background:#04060f;border:1px solid var(--edge);border-radius:var(--rad);padding:12px 14px;font-family:var(--mono);font-size:.7rem;line-height:1.8;max-height:300px;overflow-y:auto;min-height:60px;color:var(--ink3)}
-.term .l-info{color:var(--b)}.term .l-ok{color:var(--g)}.term .l-warn{color:var(--y)}.term .l-error{color:var(--r)}.term .l-banner{color:var(--g);font-weight:700}.term .l-section{color:var(--b);font-style:italic}.term .l-step{color:var(--ink3)}.term .l-cmd{color:var(--g)}
-.term-cursor{display:inline-block;width:7px;height:.85em;background:var(--g);animation:bc .9s step-end infinite;vertical-align:text-bottom}
-@keyframes bc{0%,100%{opacity:1}50%{opacity:0}}
-.tbl-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:.75rem}
-th{font-family:var(--mono);font-size:.57rem;text-transform:uppercase;letter-spacing:.1em;color:var(--ink3);text-align:left;padding:7px 9px;border-bottom:1px solid var(--edge)}
-td{padding:8px 9px;border-bottom:1px solid var(--edge);font-family:var(--mono);font-size:.7rem}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,.012)}
-.truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tag{font-family:var(--mono);font-size:.58rem;padding:2px 6px;border-radius:2px;display:inline-flex;align-items:center}
-.tag-ok{background:rgba(0,230,118,.1);color:var(--g)}.tag-err{background:rgba(255,82,82,.1);color:var(--r)}
-.tag-aws{background:rgba(255,145,0,.1);color:var(--o)}.tag-az{background:rgba(41,182,246,.1);color:var(--az)}
-.tag-gcp{background:rgba(102,187,106,.1);color:var(--gc)}.tag-do{background:rgba(92,107,192,.1);color:var(--do)}
-.bars{display:flex;flex-direction:column;gap:11px}
-.bar-row{display:flex;align-items:center;gap:9px}
-.bar-name{font-family:var(--mono);font-size:.62rem;width:90px;flex-shrink:0;color:var(--ink3)}
-.bar-track{flex:1;height:5px;background:var(--edge);border-radius:3px;overflow:hidden}
-.bar-fill{height:100%;border-radius:3px;transition:width 1s cubic-bezier(.22,1,.36,1)}
-.bar-track.stacked{display:flex;overflow:hidden}
-.bar-seg{height:100%;transition:width .8s cubic-bezier(.22,1,.36,1)}
-.bar-val{font-family:var(--mono);font-size:.62rem;color:var(--ink3);width:38px;text-align:right}
-.donut-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-.donut-legend{display:flex;flex-direction:column;gap:8px}
-.leg{display:flex;align-items:center;gap:7px;font-size:.75rem}
-.leg-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.leg-name{flex:1;font-family:var(--mono);font-size:.62rem}
-.leg-val{font-family:var(--mono);font-size:.62rem;color:var(--ink3)}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{background:var(--card2);border:1px solid var(--edge);border-radius:2px;padding:3px 9px;font-family:var(--mono);font-size:.64rem;display:flex;align-items:center;gap:6px}
-.chip-ext{color:var(--az)}.chip-n{color:var(--ink3)}
-.file-row{display:flex;align-items:center;padding:7px 9px;border-radius:var(--rad);transition:.1s}
-.file-row:hover{background:var(--card2)}
-.file-icon{font-size:.85rem;width:18px;text-align:center}
-.file-name{font-family:var(--mono);font-size:.68rem;flex:1;margin:0 9px}
-.file-size{font-family:var(--mono);font-size:.58rem;color:var(--ink3);margin-right:9px}
-.empty{text-align:center;padding:32px 16px;color:var(--ink3);font-family:var(--mono);font-size:.72rem}
-.empty-icon{font-size:1.8rem;margin-bottom:10px;opacity:.35;display:block}
-.alert{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;border-radius:var(--rad);border:1px solid;font-size:.78rem;line-height:1.5}
-.alert-info{background:rgba(64,196,255,.05);border-color:rgba(64,196,255,.2);color:var(--b)}
-[data-tip]{position:relative}
-[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--edge2);color:var(--ink);font-size:.62rem;padding:3px 9px;border-radius:2px;white-space:nowrap;pointer-events:none;font-family:var(--mono);z-index:200}
-@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-.anim{animation:fi .22s ease}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cloud Pearser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap"
+    rel="stylesheet" />
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    :root {
+      --ink: #e8eaf6;
+      --ink2: #7986cb;
+      --ink3: #3d4578;
+      --paper: #080b14;
+      --card: #0d1120;
+      --card2: #121829;
+      --edge: #1a2240;
+      --edge2: #242e50;
+      --g: #00e676;
+      --b: #40c4ff;
+      --y: #ffea00;
+      --r: #ff5252;
+      --o: #ff9100;
+      --az: #29b6f6;
+      --gc: #66bb6a;
+      --do: #5c6bc0;
+      --mono: 'Space Mono', monospace;
+      --sans: 'Syne', sans-serif;
+      --rad: 4px;
+    }
+
+    [data-theme="light"] {
+      --ink: #1a1f3a;
+      --ink2: #3d4578;
+      --ink3: #8892c8;
+      --paper: #f0f2fc;
+      --card: #ffffff;
+      --card2: #e8eaf6;
+      --edge: #c5cae9;
+      --edge2: #9fa8da;
+    }
+
+    [data-theme="light"] body::after {
+      background: none
+    }
+
+    [data-theme="light"] .nav-item:hover {
+      background: rgba(0, 0, 0, .04)
+    }
+
+    [data-theme="light"] .nav-item.active {
+      background: rgba(0, 230, 118, .08)
+    }
+
+    [data-theme="light"] tr:hover td {
+      background: rgba(0, 0, 0, .02)
+    }
+
+    html {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      scroll-behavior: smooth
+    }
+
+    body {
+      min-height: 100vh;
+      overflow-x: hidden
+    }
+
+    button {
+      font-family: var(--sans);
+      cursor: pointer;
+      border: none;
+      background: none
+    }
+
+    input,
+    textarea,
+    select {
+      font-family: var(--mono);
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--edge);
+      border-radius: var(--rad);
+      padding: 8px 12px;
+      font-size: .8rem
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--g)
+    }
+
+    textarea {
+      resize: vertical
+    }
+
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--paper)
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--edge2);
+      border-radius: 3px
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, .06) 2px, rgba(0, 0, 0, .06) 4px)
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 100vh
+    }
+
+    .sidebar {
+      background: var(--card);
+      border-right: 1px solid var(--edge);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto
+    }
+
+    .sb-head {
+      padding: 22px 18px 14px;
+      border-bottom: 1px solid var(--edge)
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 3px
+    }
+
+    .logo-diamond {
+      width: 20px;
+      height: 20px;
+      background: var(--g);
+      clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+      flex-shrink: 0
+    }
+
+    .logo-text {
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: -.5px
+    }
+
+    .logo-text em {
+      color: var(--g);
+      font-style: normal
+    }
+
+    .sb-ver {
+      font-family: var(--mono);
+      font-size: .58rem;
+      color: var(--ink3);
+      margin-left: 29px
+    }
+
+    .sb-status {
+      margin: 10px 18px 0;
+      padding: 7px 10px;
+      background: var(--card2);
+      border: 1px solid var(--edge);
+      border-radius: var(--rad);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: .62rem
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--ink3)
+    }
+
+    .status-dot.running {
+      background: var(--g);
+      animation: pulse 1.2s ease-in-out infinite
+    }
+
+    .status-dot.done {
+      background: var(--g)
+    }
+
+    .status-dot.error {
+      background: var(--r)
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+        box-shadow: 0 0 0 0 rgba(0, 230, 118, .4)
+      }
+
+      50% {
+        opacity: .7;
+        box-shadow: 0 0 0 6px rgba(0, 230, 118, 0)
+      }
+    }
+
+    .nav {
+      padding: 14px 0;
+      flex: 1
+    }
+
+    .nav-section {
+      font-family: var(--mono);
+      font-size: .53rem;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      color: var(--ink3);
+      padding: 0 18px 5px;
+      margin-top: 10px
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--ink3);
+      border-left: 2px solid transparent;
+      transition: .1s
+    }
+
+    .nav-item:hover {
+      color: var(--ink);
+      background: rgba(255, 255, 255, .02)
+    }
+
+    .nav-item.active {
+      color: var(--g);
+      border-left-color: var(--g);
+      background: rgba(0, 230, 118, .04)
+    }
+
+    .nav-item .ni {
+      font-size: .85rem;
+      width: 14px;
+      text-align: center
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: .57rem;
+      background: var(--card2);
+      border: 1px solid var(--edge);
+      padding: 1px 5px;
+      border-radius: 2px
+    }
+
+    .sb-foot {
+      padding: 10px 18px;
+      border-top: 1px solid var(--edge);
+      font-family: var(--mono);
+      font-size: .57rem;
+      color: var(--ink3);
+      line-height: 1.8
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0
+    }
+
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--edge);
+      padding: 0 26px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px
+    }
+
+    .page-title {
+      font-weight: 800;
+      font-size: .9rem;
+      letter-spacing: -.3px
+    }
+
+    .breadcrumb {
+      font-family: var(--mono);
+      font-size: .6rem;
+      color: var(--ink3)
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .content {
+      padding: 22px 26px 60px;
+      flex: 1
+    }
+
+    .view {
+      display: none
+    }
+
+    .view.active {
+      display: block
+    }
+
+    .slabel {
+      font-family: var(--mono);
+      font-size: .58rem;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 9px;
+      display: flex;
+      align-items: center;
+      gap: 7px
+    }
+
+    .slabel::before {
+      content: '//';
+      color: var(--g)
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--edge);
+      border-radius: var(--rad);
+      padding: 16px 18px
+    }
+
+    .mt {
+      margin-top: 13px
+    }
+
+    .ch {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px
+    }
+
+    .ct {
+      font-weight: 700;
+      font-size: .85rem
+    }
+
+    .cb {
+      font-family: var(--mono);
+      font-size: .57rem;
+      padding: 2px 7px;
+      background: var(--card2);
+      border: 1px solid var(--edge);
+      border-radius: 2px;
+      color: var(--ink3)
+    }
+
+    .g2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 13px
+    }
+
+    .g3 {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px
+    }
+
+    @media(max-width:1200px) {
+      .g3 {
+        grid-template-columns: repeat(3, 1fr)
+      }
+    }
+
+    @media(max-width:900px) {
+      .g2 {
+        grid-template-columns: 1fr
+      }
+
+      .g3 {
+        grid-template-columns: 1fr 1fr
+      }
+    }
+
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--edge);
+      border-radius: var(--rad);
+      padding: 14px 16px;
+      position: relative;
+      overflow: hidden;
+      transition: .15s
+    }
+
+    .stat::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px
+    }
+
+    .stat:hover {
+      border-color: var(--edge2);
+      transform: translateY(-1px)
+    }
+
+    .stat.total::after {
+      background: var(--g)
+    }
+
+    .stat.aws::after {
+      background: var(--o)
+    }
+
+    .stat.azure::after {
+      background: var(--az)
+    }
+
+    .stat.gcp::after {
+      background: var(--gc)
+    }
+
+    .stat.doo::after {
+      background: var(--do)
+    }
+
+    .stat-lbl {
+      font-family: var(--mono);
+      font-size: .57rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 7px
+    }
+
+    .stat-val {
+      font-size: 1.8rem;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -1px
+    }
+
+    .stat-sub {
+      font-family: var(--mono);
+      font-size: .58rem;
+      color: var(--ink3);
+      margin-top: 4px
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--rad);
+      font-family: var(--sans);
+      font-size: .78rem;
+      font-weight: 700;
+      transition: .1s;
+      letter-spacing: .3px
+    }
+
+    .btn-primary {
+      background: var(--g);
+      color: #000
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1)
+    }
+
+    .btn-primary:disabled {
+      background: var(--edge);
+      color: var(--ink3);
+      cursor: not-allowed;
+      filter: none
+    }
+
+    .btn-danger {
+      background: rgba(255, 82, 82, .12);
+      border: 1px solid var(--r);
+      color: var(--r)
+    }
+
+    .btn-danger:hover {
+      background: rgba(255, 82, 82, .2)
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--edge);
+      color: var(--ink3)
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--edge2);
+      color: var(--ink)
+    }
+
+    .btn-sm {
+      padding: 5px 11px;
+      font-size: .7rem
+    }
+
+    .fg {
+      display: flex;
+      flex-direction: column;
+      gap: 4px
+    }
+
+    .fg.full {
+      grid-column: 1/-1
+    }
+
+    .flabel {
+      font-family: var(--mono);
+      font-size: .6rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink3)
+    }
+
+    input.fi,
+    textarea.fi,
+    select.fi {
+      width: 100%
+    }
+
+    .prog {
+      height: 2px;
+      background: var(--edge);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 9px
+    }
+
+    .prog-fill {
+      height: 100%;
+      background: var(--g);
+      transition: width .4s ease;
+      width: 0%
+    }
+
+    .prog-fill.ind {
+      width: 40% !important;
+      animation: slide 1.3s ease-in-out infinite
+    }
+
+    @keyframes slide {
+      0% {
+        transform: translateX(-100%)
+      }
+
+      100% {
+        transform: translateX(250%)
+      }
+    }
+
+    .term {
+      background: #04060f;
+      border: 1px solid var(--edge);
+      border-radius: var(--rad);
+      padding: 12px 14px;
+      font-family: var(--mono);
+      font-size: .7rem;
+      line-height: 1.8;
+      max-height: 300px;
+      overflow-y: auto;
+      min-height: 60px;
+      color: var(--ink3)
+    }
+
+    .term .l-info {
+      color: var(--b)
+    }
+
+    .term .l-ok {
+      color: var(--g)
+    }
+
+    .term .l-warn {
+      color: var(--y)
+    }
+
+    .term .l-error {
+      color: var(--r)
+    }
+
+    .term .l-banner {
+      color: var(--g);
+      font-weight: 700
+    }
+
+    .term .l-section {
+      color: var(--b);
+      font-style: italic
+    }
+
+    .term .l-step {
+      color: var(--ink3)
+    }
+
+    .term .l-cmd {
+      color: var(--g)
+    }
+
+    .term-cursor {
+      display: inline-block;
+      width: 7px;
+      height: .85em;
+      background: var(--g);
+      animation: bc .9s step-end infinite;
+      vertical-align: text-bottom
+    }
+
+    @keyframes bc {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0
+      }
+    }
+
+    .tbl-wrap {
+      overflow-x: auto
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .75rem
+    }
+
+    th {
+      font-family: var(--mono);
+      font-size: .57rem;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--ink3);
+      text-align: left;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--edge)
+    }
+
+    td {
+      padding: 8px 9px;
+      border-bottom: 1px solid var(--edge);
+      font-family: var(--mono);
+      font-size: .7rem
+    }
+
+    tr:last-child td {
+      border-bottom: none
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, .012)
+    }
+
+    .truncate {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: .58rem;
+      padding: 2px 6px;
+      border-radius: 2px;
+      display: inline-flex;
+      align-items: center
+    }
+
+    .tag-ok {
+      background: rgba(0, 230, 118, .1);
+      color: var(--g)
+    }
+
+    .tag-err {
+      background: rgba(255, 82, 82, .1);
+      color: var(--r)
+    }
+
+    .tag-aws {
+      background: rgba(255, 145, 0, .1);
+      color: var(--o)
+    }
+
+    .tag-az {
+      background: rgba(41, 182, 246, .1);
+      color: var(--az)
+    }
+
+    .tag-gcp {
+      background: rgba(102, 187, 106, .1);
+      color: var(--gc)
+    }
+
+    .tag-do {
+      background: rgba(92, 107, 192, .1);
+      color: var(--do)
+    }
+
+    .bars {
+      display: flex;
+      flex-direction: column;
+      gap: 11px
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 9px
+    }
+
+    .bar-name {
+      font-family: var(--mono);
+      font-size: .62rem;
+      width: 90px;
+      flex-shrink: 0;
+      color: var(--ink3)
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 5px;
+      background: var(--edge);
+      border-radius: 3px;
+      overflow: hidden
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 1s cubic-bezier(.22, 1, .36, 1)
+    }
+
+    .bar-track.stacked {
+      display: flex;
+      overflow: hidden
+    }
+
+    .bar-seg {
+      height: 100%;
+      transition: width .8s cubic-bezier(.22, 1, .36, 1)
+    }
+
+    .bar-val {
+      font-family: var(--mono);
+      font-size: .62rem;
+      color: var(--ink3);
+      width: 38px;
+      text-align: right
+    }
+
+    .donut-wrap {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap
+    }
+
+    .donut-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 8px
+    }
+
+    .leg {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: .75rem
+    }
+
+    .leg-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0
+    }
+
+    .leg-name {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: .62rem
+    }
+
+    .leg-val {
+      font-family: var(--mono);
+      font-size: .62rem;
+      color: var(--ink3)
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px
+    }
+
+    .chip {
+      background: var(--card2);
+      border: 1px solid var(--edge);
+      border-radius: 2px;
+      padding: 3px 9px;
+      font-family: var(--mono);
+      font-size: .64rem;
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .chip-ext {
+      color: var(--az)
+    }
+
+    .chip-n {
+      color: var(--ink3)
+    }
+
+    .file-row {
+      display: flex;
+      align-items: center;
+      padding: 7px 9px;
+      border-radius: var(--rad);
+      transition: .1s
+    }
+
+    .file-row:hover {
+      background: var(--card2)
+    }
+
+    .file-icon {
+      font-size: .85rem;
+      width: 18px;
+      text-align: center
+    }
+
+    .file-name {
+      font-family: var(--mono);
+      font-size: .68rem;
+      flex: 1;
+      margin: 0 9px
+    }
+
+    .file-size {
+      font-family: var(--mono);
+      font-size: .58rem;
+      color: var(--ink3);
+      margin-right: 9px
+    }
+
+    .empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--ink3);
+      font-family: var(--mono);
+      font-size: .72rem
+    }
+
+    .empty-icon {
+      font-size: 1.8rem;
+      margin-bottom: 10px;
+      opacity: .35;
+      display: block
+    }
+
+    .alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 10px 12px;
+      border-radius: var(--rad);
+      border: 1px solid;
+      font-size: .78rem;
+      line-height: 1.5
+    }
+
+    .alert-info {
+      background: rgba(64, 196, 255, .05);
+      border-color: rgba(64, 196, 255, .2);
+      color: var(--b)
+    }
+
+    [data-tip] {
+      position: relative
+    }
+
+    [data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: 110%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--card2);
+      border: 1px solid var(--edge2);
+      color: var(--ink);
+      font-size: .62rem;
+      padding: 3px 9px;
+      border-radius: 2px;
+      white-space: nowrap;
+      pointer-events: none;
+      font-family: var(--mono);
+      z-index: 200
+    }
+
+    @keyframes fi {
+      from {
+        opacity: 0;
+        transform: translateY(5px)
+      }
+
+      to {
+        opacity: 1;
+        transform: none
+      }
+    }
+
+    .anim {
+      animation: fi .22s ease
+    }
+  </style>
 </head>
+
 <body>
-<div class="shell">
+  <div class="shell">
 
-<aside class="sidebar">
-  <div class="sb-head">
-    <div class="logo">
-      <div class="logo-diamond"></div>
-      <div class="logo-text">Cloud<em>Pearser</em></div>
-    </div>
-    <div class="sb-ver">v2.0.0 // GrayHatWarfare</div>
-    <div class="sb-status">
-      <div class="status-dot" id="sb-dot"></div>
-      <span id="sb-status-txt">IDLE</span>
-    </div>
-  </div>
-  <nav class="nav">
-    <div class="nav-section">Dashboard</div>
-    <div class="nav-item active" onclick="nav('overview')" data-view="overview"><span class="ni">◈</span> Overview</div>
-    <div class="nav-item" onclick="nav('scan')" data-view="scan"><span class="ni">⚡</span> New Scan</div>
-    <div class="nav-section">Results</div>
-    <div class="nav-item" onclick="nav('buckets')" data-view="buckets"><span class="ni">🪣</span> Buckets<span class="nav-badge" id="nb-buckets">0</span></div>
-    <div class="nav-item" onclick="nav('azure')" data-view="azure"><span class="ni">🔵</span> Azure Enum<span class="nav-badge" id="nb-azure">0</span></div>
-    <div class="nav-item" onclick="nav('files')" data-view="files"><span class="ni">📁</span> Output Files</div>
-    <div class="nav-item" onclick="nav('history')" data-view="history"><span class="ni">🕐</span> History<span class="nav-badge" id="nb-hist">0</span></div>
-    <div class="nav-section">Automation</div>
-    <div class="nav-item" onclick="nav('schedules')" data-view="schedules"><span class="ni">⏰</span> Schedules<span class="nav-badge" id="nb-sched">0</span></div>
-  </nav>
-  <div class="sb-foot">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
-      <span style="letter-spacing:.08em;text-transform:uppercase;font-size:.53rem">Theme</span>
-      <button id="theme-btn" onclick="toggleTheme()" style="display:flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--edge);border-radius:20px;padding:3px 9px 3px 5px;font-family:var(--mono);font-size:.58rem;color:var(--ink3);cursor:pointer;transition:.15s">
-        <span id="theme-icon" style="font-size:.75rem">🌙</span>
-        <span id="theme-label">Dark</span>
-      </button>
-    </div>
-    Server: <span id="sb-api-url">localhost:5000</span><br>
-    Last scan: <span id="sb-last-ts">—</span>
-  </div>
-</aside>
+    <aside class="sidebar">
+      <div class="sb-head">
+        <div class="logo">
+          <div class="logo-diamond"></div>
+          <div class="logo-text">Cloud<em>Pearser</em></div>
+        </div>
+        <div class="sb-ver">v2.0.0 // GrayHatWarfare</div>
+        <div class="sb-status">
+          <div class="status-dot" id="sb-dot"></div>
+          <span id="sb-status-txt">IDLE</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">Dashboard</div>
+        <div class="nav-item active" onclick="nav('overview')" data-view="overview"><span class="ni">◈</span> Overview
+        </div>
+        <div class="nav-item" onclick="nav('scan')" data-view="scan"><span class="ni">⚡</span> New Scan</div>
+        <div class="nav-section">Results</div>
+        <div class="nav-item" onclick="nav('buckets')" data-view="buckets"><span class="ni">🪣</span> Buckets<span
+            class="nav-badge" id="nb-buckets">0</span></div>
+        <div class="nav-item" onclick="nav('azure')" data-view="azure"><span class="ni">🔵</span> Azure Enum<span
+            class="nav-badge" id="nb-azure">0</span></div>
+        <div class="nav-item" onclick="nav('files')" data-view="files"><span class="ni">📁</span> Output Files</div>
+        <div class="nav-item" onclick="nav('history')" data-view="history"><span class="ni">🕐</span> History<span
+            class="nav-badge" id="nb-hist">0</span></div>
+        <div class="nav-section">Automation</div>
+        <div class="nav-item" onclick="nav('schedules')" data-view="schedules"><span class="ni">⏰</span> Schedules<span
+            class="nav-badge" id="nb-sched">0</span></div>
+      </nav>
+      <div class="sb-foot">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+          <span style="letter-spacing:.08em;text-transform:uppercase;font-size:.53rem">Theme</span>
+          <button id="theme-btn" onclick="toggleTheme()"
+            style="display:flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--edge);border-radius:20px;padding:3px 9px 3px 5px;font-family:var(--mono);font-size:.58rem;color:var(--ink3);cursor:pointer;transition:.15s">
+            <span id="theme-icon" style="font-size:.75rem">🌙</span>
+            <span id="theme-label">Dark</span>
+          </button>
+        </div>
+        Server: <span id="sb-api-url">localhost:5000</span><br>
+        Last scan: <span id="sb-last-ts">—</span>
+      </div>
+    </aside>
 
-<div class="main">
-  <div class="topbar">
-    <div class="topbar-left">
-      <div class="page-title" id="page-title">Overview</div>
-      <div class="breadcrumb" id="page-crumb">cloud-pearser / overview</div>
-    </div>
-    <div class="topbar-right">
-      <button class="btn btn-ghost btn-sm" onclick="loadLatestRun()" data-tip="Reload latest data">↺ Refresh</button>
-      <button class="btn btn-primary btn-sm" onclick="nav('scan')">+ New Scan</button>
-    </div>
-  </div>
+    <div class="main">
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="page-title" id="page-title">Overview</div>
+          <div class="breadcrumb" id="page-crumb">cloud-pearser / overview</div>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-ghost btn-sm" onclick="loadLatestRun()" data-tip="Reload latest data">↺
+            Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="nav('scan')">+ New Scan</button>
+        </div>
+      </div>
 
-  <div class="content">
+      <div class="content">
 
-    <!-- OVERVIEW -->
-    <div class="view active anim" id="view-overview">
-      <div class="slabel">Exposure Summary</div>
-      <div class="g3" style="margin-bottom:18px">
-        <div class="stat total"><div class="stat-lbl">Total</div><div class="stat-val" id="s-total">—</div><div class="stat-sub">all providers</div></div>
-        <div class="stat aws">  <div class="stat-lbl">AWS S3</div><div class="stat-val" id="s-aws">—</div><div class="stat-sub">amazonaws.com</div></div>
-        <div class="stat azure"><div class="stat-lbl">Azure Blob</div><div class="stat-val" id="s-azure">—</div><div class="stat-sub">blob.core.windows.net</div></div>
-        <div class="stat gcp">  <div class="stat-lbl">Google Cloud</div><div class="stat-val" id="s-gcp">—</div><div class="stat-sub">googleapis.com</div></div>
-        <div class="stat doo">  <div class="stat-lbl">DigitalOcean</div><div class="stat-val" id="s-do">—</div><div class="stat-sub">digitaloceanspaces.com</div></div>
-      </div>
-      <div class="g2">
-        <div class="card">
-          <div class="ch"><div class="ct">Count by Provider</div><span class="cb">BAR</span></div>
-          <div class="bars" id="bars"><div class="empty"><span class="empty-icon">📊</span>No scan data yet</div></div>
-        </div>
-        <div class="card">
-          <div class="ch"><div class="ct">Provider Share</div><span class="cb">DONUT</span></div>
-          <div class="donut-wrap">
-            <svg id="donut" width="110" height="110" viewBox="0 0 110 110" style="flex-shrink:0">
-              <circle cx="55" cy="55" r="42" fill="none" stroke="var(--edge)" stroke-width="14"/>
-              <text x="55" y="59" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no data</text>
-            </svg>
-            <div class="donut-legend" id="donut-leg"></div>
-          </div>
-        </div>
-      </div>
-      <div id="kw-section" style="display:none">
-        <div class="slabel mt">Results by Keyword</div>
-        <div id="kw-grid"></div>
-      </div>
-      <div id="overview-nodata" class="alert alert-info mt">
-        <span>ℹ</span>
-        <span>No data yet. <a href="#" onclick="nav('scan');return false" style="color:var(--g);text-decoration:underline">Run a scan</a> to get started.</span>
-      </div>
-    </div>
-
-    <!-- SCAN -->
-    <div class="view anim" id="view-scan">
-      <div class="slabel">Configure &amp; Run</div>
-      <div class="card" style="margin-bottom:13px">
-        <div class="ch">
-          <div class="ct">⚡ Scan Configuration</div>
-          <div style="display:flex;gap:7px">
-            <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
-            <button class="btn btn-danger btn-sm" id="stop-btn" onclick="stopScan()" style="display:none">■ Stop</button>
-            <button class="btn btn-primary" id="run-btn" onclick="startScan()">▶ Run Scan</button>
-          </div>
-        </div>
-        <div class="g2" style="margin-bottom:11px">
-          <div class="fg">
-            <label class="flabel">API Key</label>
-            <input class="fi" id="cfg-api-key" type="password" placeholder="Bearer token …"/>
-          </div>
-          <div class="fg">
-            <label class="flabel">Pagination Offsets</label>
-            <input class="fi" id="cfg-offsets" value="0, 1000"/>
-          </div>
-          <div class="fg full">
-            <label class="flabel">Keywords — one per line (blank = use keywords.txt)</label>
-            <textarea class="fi" id="cfg-keywords" rows="5" placeholder="bajaj&#10;BFL&#10;finserv …"></textarea>
-          </div>
-        </div>
-        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:9px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.78rem;color:var(--ink3)">
-            <input type="checkbox" id="cfg-skip-azure" style="accent-color:var(--g)"/> Skip Azure Enumeration
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.78rem;color:var(--ink3)">
-            <input type="checkbox" id="cfg-use-cache" style="accent-color:var(--g)"/> Use cached API data
-          </label>
-        </div>
-        <div class="prog" id="prog"><div class="prog-fill" id="prog-fill"></div></div>
-        <div id="scan-stage" style="font-family:var(--mono);font-size:.6rem;color:var(--ink3);margin-top:4px;min-height:1.1em"></div>
-      </div>
-      <div class="card">
-        <div class="ch"><div class="ct">Live Log</div><span class="cb" id="log-ts">—</span></div>
-        <div class="term" id="term">
-          <span class="l-cmd">$ cloud-pearser v2.0.0  //  ready</span><br>
-          <span class="l-info">// Connected to Flask backend at localhost:5000</span><br>
-          <span class="l-info">// Configure your scan above and press ▶ Run Scan.</span><br>
-          <span class="term-cursor"></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- BUCKETS -->
-    <div class="view anim" id="view-buckets">
-      <div class="slabel">Discovered Buckets</div>
-      <div style="display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap" id="provider-tabs">
-        <button class="btn btn-primary btn-sm" data-prov="AWS"         onclick="selectProvider('AWS')">AWS S3</button>
-        <button class="btn btn-ghost  btn-sm" data-prov="Azure"        onclick="selectProvider('Azure')">Azure Blob</button>
-        <button class="btn btn-ghost  btn-sm" data-prov="GCP"          onclick="selectProvider('GCP')">Google Cloud</button>
-        <button class="btn btn-ghost  btn-sm" data-prov="DigitalOcean" onclick="selectProvider('DigitalOcean')">DigitalOcean</button>
-      </div>
-      <div class="card">
-        <div class="ch">
-          <div class="ct" id="prov-title">AWS S3 Buckets</div>
-          <div style="display:flex;gap:7px;align-items:center">
-            <span class="cb" id="prov-count">0 rows</span>
-            <button class="btn btn-ghost btn-sm" onclick="downloadCurrent()">⬇ CSV</button>
-          </div>
-        </div>
-        <div class="tbl-wrap">
-          <table>
-            <thead id="prov-head"><tr><th>Bucket</th><th>URL</th></tr></thead>
-            <tbody id="prov-body"><tr><td colspan="2"><div class="empty"><span class="empty-icon">🪣</span>Run a scan first</div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- AZURE ENUM -->
-    <div class="view anim" id="view-azure">
-      <div class="slabel">Azure Blob Enumeration</div>
-      <div class="g2" style="margin-bottom:13px">
-        <div class="card">
-          <div class="ch"><div class="ct">File Type Distribution</div><span class="cb" id="ae-total">0 URLs</span></div>
-          <div class="chips" id="ext-chips"><div class="empty"><span class="empty-icon">📂</span>No enumeration data</div></div>
-        </div>
-        <div class="card">
-          <div class="ch"><div class="ct">Top Extensions</div><span class="cb">BAR</span></div>
-          <div class="bars" id="ext-bars"><div class="empty"><span class="empty-icon">📊</span>No data</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="ch"><div class="ct">Blob URL Sample</div><span class="cb" id="url-count">0</span></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>#</th><th>URL</th><th>Ext</th></tr></thead>
-            <tbody id="tbl-urls"><tr><td colspan="3"><div class="empty"><span class="empty-icon">🔗</span>No URLs</div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- FILES -->
-    <div class="view anim" id="view-files">
-      <div class="slabel">Output Files</div>
-      <div style="display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap;align-items:center">
-        <select class="fi" id="run-select" onchange="loadRunFiles()" style="flex:1;max-width:360px">
-          <option value="">— Select a scan run —</option>
-        </select>
-        <button class="btn btn-ghost btn-sm" onclick="loadOutputDirs()">↺ Refresh</button>
-      </div>
-      <div class="card" id="file-list"><div class="empty"><span class="empty-icon">📁</span>Select a scan run above</div></div>
-    </div>
-
-    <!-- HISTORY -->
-    <div class="view anim" id="view-history">
-      <div class="slabel">Scan History</div>
-      <div class="card">
-        <div class="ch"><div class="ct">All Runs</div><span class="cb" id="hist-count">0 runs</span></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Timestamp</th><th>Keywords</th><th>AWS</th><th>Azure</th><th>GCP</th><th>DO</th><th>Total</th><th>Status</th><th></th></tr></thead>
-            <tbody id="tbl-hist"><tr><td colspan="9"><div class="empty"><span class="empty-icon">🕐</span>No scans yet</div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- SCHEDULES -->
-    <div class="view anim" id="view-schedules">
-      <div class="slabel">Automated Scans</div>
-      <div id="sched-no-aps" class="alert alert-info mt" style="display:none">
-        <span>⚠</span>
-        <span>APScheduler not installed. Run: <span style="font-family:var(--mono);color:var(--g)">pip install APScheduler</span> then restart the server to enable scheduling.</span>
-      </div>
-      <div class="g2" style="align-items:start;margin-top:13px">
-        <div class="card">
-          <div class="ch"><div class="ct">New Schedule</div></div>
-          <div class="fg" style="margin-bottom:9px">
-            <label class="flabel">Name</label>
-            <input class="fi" id="sched-name" placeholder="Daily scan"/>
-          </div>
-          <div class="fg" style="margin-bottom:9px">
-            <label class="flabel">Keywords — one per line</label>
-            <textarea class="fi" id="sched-keywords" rows="4" placeholder="keyword1&#10;keyword2"></textarea>
-          </div>
-          <div class="g2" style="margin-bottom:9px">
-            <div class="fg">
-              <label class="flabel">Interval (hours)</label>
-              <input class="fi" id="sched-interval" type="number" min="1" value="24"/>
-            </div>
-            <div class="fg">
-              <label class="flabel">API Key (blank = use default)</label>
-              <input class="fi" id="sched-api-key" type="password" placeholder="uses config default"/>
+        <!-- OVERVIEW -->
+        <div class="view active anim" id="view-overview">
+          <div class="slabel">Exposure Summary</div>
+          <div id="kw-filter-wrap" style="display:none;margin-bottom:12px">
+            <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+              <span
+                style="color:var(--ink3);font-size:.65rem;font-family:var(--mono);letter-spacing:.06em;margin-right:3px">FILTER:</span>
+              <div id="kw-filter-pills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
             </div>
           </div>
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.78rem;color:var(--ink3);margin-bottom:9px">
-            <input type="checkbox" id="sched-run-now" style="accent-color:var(--g)"/> Run scan immediately after creating
-          </label>
-          <button class="btn btn-primary" id="sched-add-btn" onclick="createSchedule()" style="width:100%">+ Add Schedule</button>
+          <div class="g3" style="margin-bottom:18px">
+            <div class="stat total">
+              <div class="stat-lbl">Total</div>
+              <div class="stat-val" id="s-total">—</div>
+              <div class="stat-sub">all providers</div>
+            </div>
+            <div class="stat aws">
+              <div class="stat-lbl">AWS S3</div>
+              <div class="stat-val" id="s-aws">—</div>
+              <div class="stat-sub">amazonaws.com</div>
+            </div>
+            <div class="stat azure">
+              <div class="stat-lbl">Azure Blob</div>
+              <div class="stat-val" id="s-azure">—</div>
+              <div class="stat-sub">blob.core.windows.net</div>
+            </div>
+            <div class="stat gcp">
+              <div class="stat-lbl">Google Cloud</div>
+              <div class="stat-val" id="s-gcp">—</div>
+              <div class="stat-sub">googleapis.com</div>
+            </div>
+            <div class="stat doo">
+              <div class="stat-lbl">DigitalOcean</div>
+              <div class="stat-val" id="s-do">—</div>
+              <div class="stat-sub">digitaloceanspaces.com</div>
+            </div>
+          </div>
+          <div class="g2">
+            <div class="card">
+              <div class="ch">
+                <div class="ct">Count by Provider</div><span class="cb">BAR</span>
+              </div>
+              <div class="bars" id="bars">
+                <div class="empty"><span class="empty-icon">📊</span>No scan data yet</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="ch">
+                <div class="ct">Provider Share</div><span class="cb">DONUT</span>
+              </div>
+              <div class="donut-wrap">
+                <svg id="donut" width="110" height="110" viewBox="0 0 110 110" style="flex-shrink:0">
+                  <circle cx="55" cy="55" r="42" fill="none" stroke="var(--edge)" stroke-width="14" />
+                  <text x="55" y="59" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no
+                    data</text>
+                </svg>
+                <div class="donut-legend" id="donut-leg"></div>
+              </div>
+            </div>
+          </div>
+          <div id="kw-section" style="display:none">
+            <div class="slabel mt">Results by Keyword</div>
+            <div id="kw-grid"></div>
+          </div>
+          <div id="overview-nodata" class="alert alert-info mt">
+            <span>ℹ</span>
+            <span>No data yet. <a href="#" onclick="nav('scan');return false"
+                style="color:var(--g);text-decoration:underline">Run a scan</a> to get started.</span>
+          </div>
         </div>
-        <div class="card">
-          <div class="ch"><div class="ct">Active Schedules</div><span class="cb" id="sched-count">0 schedules</span></div>
-          <div id="sched-list"><div class="empty"><span class="empty-icon">⏰</span>No schedules yet</div></div>
+
+        <!-- SCAN -->
+        <div class="view anim" id="view-scan">
+          <div class="slabel">Configure &amp; Run</div>
+          <div class="card" style="margin-bottom:13px">
+            <div class="ch">
+              <div class="ct">⚡ Scan Configuration</div>
+              <div style="display:flex;gap:7px">
+                <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
+                <button class="btn btn-danger btn-sm" id="stop-btn" onclick="stopScan()" style="display:none">■
+                  Stop</button>
+                <button class="btn btn-primary" id="run-btn" onclick="startScan()">▶ Run Scan</button>
+              </div>
+            </div>
+            <div class="g2" style="margin-bottom:11px">
+              <div class="fg">
+                <label class="flabel">API Key</label>
+                <input class="fi" id="cfg-api-key" type="password" placeholder="Bearer token …" />
+              </div>
+              <div class="fg">
+                <label class="flabel">Pagination Offsets</label>
+                <input class="fi" id="cfg-offsets" value="0, 1000" />
+              </div>
+              <div class="fg full">
+                <label class="flabel">Keywords — one per line (blank = use keywords.txt)</label>
+                <textarea class="fi" id="cfg-keywords" rows="5"
+                  placeholder="keyword1&#10;keyword2&#10;keyword3 …"></textarea>
+              </div>
+            </div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:9px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.78rem;color:var(--ink3)">
+                <input type="checkbox" id="cfg-skip-azure" style="accent-color:var(--g)" /> Skip Azure Enumeration
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.78rem;color:var(--ink3)">
+                <input type="checkbox" id="cfg-use-cache" style="accent-color:var(--g)" /> Use cached API data
+              </label>
+            </div>
+            <div class="prog" id="prog">
+              <div class="prog-fill" id="prog-fill"></div>
+            </div>
+            <div id="scan-stage"
+              style="font-family:var(--mono);font-size:.6rem;color:var(--ink3);margin-top:4px;min-height:1.1em"></div>
+          </div>
+          <div class="card">
+            <div class="ch">
+              <div class="ct">Live Log</div><span class="cb" id="log-ts">—</span>
+            </div>
+            <div class="term" id="term">
+              <span class="l-cmd">$ cloud-pearser v2.0.0 // ready</span><br>
+              <span class="l-info">// Connected to Flask backend at localhost:5000</span><br>
+              <span class="l-info">// Configure your scan above and press ▶ Run Scan.</span><br>
+              <span class="term-cursor"></span>
+            </div>
+          </div>
         </div>
+
+        <!-- BUCKETS -->
+        <div class="view anim" id="view-buckets">
+          <div class="slabel">Discovered Buckets</div>
+          <div style="display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap" id="provider-tabs">
+            <button class="btn btn-primary btn-sm" data-prov="AWS" onclick="selectProvider('AWS')">AWS S3</button>
+            <button class="btn btn-ghost  btn-sm" data-prov="Azure" onclick="selectProvider('Azure')">Azure
+              Blob</button>
+            <button class="btn btn-ghost  btn-sm" data-prov="GCP" onclick="selectProvider('GCP')">Google Cloud</button>
+            <button class="btn btn-ghost  btn-sm" data-prov="DigitalOcean"
+              onclick="selectProvider('DigitalOcean')">DigitalOcean</button>
+          </div>
+          <div class="card">
+            <div class="ch">
+              <div class="ct" id="prov-title">AWS S3 Buckets</div>
+              <div style="display:flex;gap:7px;align-items:center">
+                <span class="cb" id="prov-count">0 rows</span>
+                <button class="btn btn-ghost btn-sm" onclick="downloadCurrent()">⬇ CSV</button>
+              </div>
+            </div>
+            <div class="tbl-wrap">
+              <table>
+                <thead id="prov-head">
+                  <tr>
+                    <th>Bucket</th>
+                    <th>URL</th>
+                  </tr>
+                </thead>
+                <tbody id="prov-body">
+                  <tr>
+                    <td colspan="2">
+                      <div class="empty"><span class="empty-icon">🪣</span>Run a scan first</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- AZURE ENUM -->
+        <div class="view anim" id="view-azure">
+          <div class="slabel">Azure Blob Enumeration</div>
+          <div class="g2" style="margin-bottom:13px">
+            <div class="card">
+              <div class="ch">
+                <div class="ct">File Type Distribution</div><span class="cb" id="ae-total">0 URLs</span>
+              </div>
+              <div class="chips" id="ext-chips">
+                <div class="empty"><span class="empty-icon">📂</span>No enumeration data</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="ch">
+                <div class="ct">Top Extensions</div><span class="cb">BAR</span>
+              </div>
+              <div class="bars" id="ext-bars">
+                <div class="empty"><span class="empty-icon">📊</span>No data</div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch">
+              <div class="ct">Blob URL Sample</div><span class="cb" id="url-count">0</span>
+            </div>
+            <div class="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>URL</th>
+                    <th>Ext</th>
+                  </tr>
+                </thead>
+                <tbody id="tbl-urls">
+                  <tr>
+                    <td colspan="3">
+                      <div class="empty"><span class="empty-icon">🔗</span>No URLs</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- FILES -->
+        <div class="view anim" id="view-files">
+          <div class="slabel">Output Files</div>
+          <div style="display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap;align-items:center">
+            <select class="fi" id="run-select" onchange="loadRunFiles()" style="flex:1;max-width:360px">
+              <option value="">— Select a scan run —</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadOutputDirs()">↺ Refresh</button>
+          </div>
+          <div class="card" id="file-list">
+            <div class="empty"><span class="empty-icon">📁</span>Select a scan run above</div>
+          </div>
+        </div>
+
+        <!-- HISTORY -->
+        <div class="view anim" id="view-history">
+          <div class="slabel">Scan History</div>
+          <div class="card">
+            <div class="ch">
+              <div class="ct">All Runs</div><span class="cb" id="hist-count">0 runs</span>
+            </div>
+            <div class="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Keywords</th>
+                    <th>AWS</th>
+                    <th>Azure</th>
+                    <th>GCP</th>
+                    <th>DO</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="tbl-hist">
+                  <tr>
+                    <td colspan="9">
+                      <div class="empty"><span class="empty-icon">🕐</span>No scans yet</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCHEDULES -->
+        <div class="view anim" id="view-schedules">
+          <div class="slabel">Automated Scans</div>
+          <div id="sched-no-aps" class="alert alert-info mt" style="display:none">
+            <span>⚠</span>
+            <span>APScheduler not installed. Run: <span style="font-family:var(--mono);color:var(--g)">pip install
+                APScheduler</span> then restart the server to enable scheduling.</span>
+          </div>
+          <div class="g2" style="align-items:start;margin-top:13px">
+            <div class="card">
+              <div class="ch">
+                <div class="ct">New Schedule</div>
+              </div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel">Name</label>
+                <input class="fi" id="sched-name" placeholder="Daily scan" />
+              </div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel">Keywords — one per line</label>
+                <textarea class="fi" id="sched-keywords" rows="4" placeholder="keyword1&#10;keyword2"></textarea>
+              </div>
+              <div class="g2" style="margin-bottom:9px">
+                <div class="fg">
+                  <label class="flabel">Interval (hours)</label>
+                  <input class="fi" id="sched-interval" type="number" min="1" value="24" />
+                </div>
+                <div class="fg">
+                  <label class="flabel">API Key (blank = use default)</label>
+                  <input class="fi" id="sched-api-key" type="password" placeholder="uses config default" />
+                </div>
+              </div>
+              <label
+                style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.78rem;color:var(--ink3);margin-bottom:9px">
+                <input type="checkbox" id="sched-run-now" style="accent-color:var(--g)" /> Run scan immediately after
+                creating
+              </label>
+              <button class="btn btn-primary" id="sched-add-btn" onclick="createSchedule()" style="width:100%">+ Add
+                Schedule</button>
+            </div>
+            <div class="card">
+              <div class="ch">
+                <div class="ct">Active Schedules</div><span class="cb" id="sched-count">0 schedules</span>
+              </div>
+              <div id="sched-list">
+                <div class="empty"><span class="empty-icon">⏰</span>No schedules yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
-
   </div>
-</div>
-</div>
 
-<script>
-const API='';
-const S={scanning:false,currentTs:null,currentProv:'AWS',counts:{AWS:0,Azure:0,GCP:0,DigitalOcean:0},extCounts:{},blobUrls:[],keywordCounts:{},history:[],outputDirs:[],schedules:[]};
-const COLORS={AWS:'#ff9100',Azure:'#29b6f6',GCP:'#66bb6a',DigitalOcean:'#5c6bc0'};
-const PLABELS={AWS:'AWS S3',Azure:'Azure Blob',GCP:'Google Cloud',DigitalOcean:'DigitalOcean'};
-const PMETA={overview:{title:'Overview',crumb:'cloud-pearser / overview'},scan:{title:'New Scan',crumb:'cloud-pearser / scan'},buckets:{title:'Buckets',crumb:'cloud-pearser / buckets'},azure:{title:'Azure Enumeration',crumb:'cloud-pearser / azure-enum'},files:{title:'Output Files',crumb:'cloud-pearser / files'},history:{title:'History',crumb:'cloud-pearser / history'},schedules:{title:'Schedules',crumb:'cloud-pearser / schedules'}};
+  <script>
+    const API = '';
+    const S = { scanning: false, currentTs: null, currentProv: 'AWS', counts: { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0 }, extCounts: {}, blobUrls: [], keywordCounts: {}, filterKw: null, history: [], outputDirs: [], schedules: [] };
+    const COLORS = { AWS: '#ff9100', Azure: '#29b6f6', GCP: '#66bb6a', DigitalOcean: '#5c6bc0' };
+    const PLABELS = { AWS: 'AWS S3', Azure: 'Azure Blob', GCP: 'Google Cloud', DigitalOcean: 'DigitalOcean' };
+    const PMETA = { overview: { title: 'Overview', crumb: 'cloud-pearser / overview' }, scan: { title: 'New Scan', crumb: 'cloud-pearser / scan' }, buckets: { title: 'Buckets', crumb: 'cloud-pearser / buckets' }, azure: { title: 'Azure Enumeration', crumb: 'cloud-pearser / azure-enum' }, files: { title: 'Output Files', crumb: 'cloud-pearser / files' }, history: { title: 'History', crumb: 'cloud-pearser / history' }, schedules: { title: 'Schedules', crumb: 'cloud-pearser / schedules' } };
 
-// ── Theme toggle ─────────────────────────────────────────────────────────
-(function(){const t=localStorage.getItem('cp-theme')||'dark';_applyTheme(t)})();
-function _applyTheme(t){
-  document.documentElement.setAttribute('data-theme',t);
-  const icon=document.getElementById('theme-icon');
-  const lbl=document.getElementById('theme-label');
-  if(icon)icon.textContent=t==='light'?'☀️':'🌙';
-  if(lbl)lbl.textContent=t==='light'?'Light':'Dark';
-  localStorage.setItem('cp-theme',t);
-}
-function toggleTheme(){
-  const cur=document.documentElement.getAttribute('data-theme')||'dark';
-  _applyTheme(cur==='dark'?'light':'dark');
-}
+    // ── Theme toggle ─────────────────────────────────────────────────────────
+    (function () { const t = localStorage.getItem('cp-theme') || 'dark'; _applyTheme(t) })();
+    function _applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      const icon = document.getElementById('theme-icon');
+      const lbl = document.getElementById('theme-label');
+      if (icon) icon.textContent = t === 'light' ? '☀️' : '🌙';
+      if (lbl) lbl.textContent = t === 'light' ? 'Light' : 'Dark';
+      localStorage.setItem('cp-theme', t);
+    }
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+      _applyTheme(cur === 'dark' ? 'light' : 'dark');
+    }
 
-function nav(id){
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  const v=document.getElementById('view-'+id);
-  if(v){v.classList.add('active');v.classList.add('anim');setTimeout(()=>v.classList.remove('anim'),300)}
-  document.querySelectorAll(`[data-view="${id}"]`).forEach(n=>n.classList.add('active'));
-  const m=PMETA[id]||{};
-  document.getElementById('page-title').textContent=m.title||id;
-  document.getElementById('page-crumb').textContent=m.crumb||'';
-  if(id==='files') loadOutputDirs();
-  if(id==='history') refreshHistory();
-  if(id==='buckets') loadProviderData(S.currentProv);
-  if(id==='azure') loadAzureData();
-  if(id==='schedules') refreshSchedules();
-}
+    function nav(id) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      const v = document.getElementById('view-' + id);
+      if (v) { v.classList.add('active'); v.classList.add('anim'); setTimeout(() => v.classList.remove('anim'), 300) }
+      document.querySelectorAll(`[data-view="${id}"]`).forEach(n => n.classList.add('active'));
+      const m = PMETA[id] || {};
+      document.getElementById('page-title').textContent = m.title || id;
+      document.getElementById('page-crumb').textContent = m.crumb || '';
+      if (id === 'files') loadOutputDirs();
+      if (id === 'history') refreshHistory();
+      if (id === 'buckets') loadProviderData(S.currentProv);
+      if (id === 'azure') loadAzureData();
+      if (id === 'schedules') refreshSchedules();
+    }
 
-async function apiFetch(path,opts={}){
-  const r=await fetch(API+path,opts);
-  if(!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-}
+    async function apiFetch(path, opts = {}) {
+      const r = await fetch(API + path, opts);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }
 
-function animCount(el,to,dur=700){
-  const from=parseInt(el.textContent.replace(/[^0-9]/g,''))||0;
-  if(from===to)return;
-  const t0=performance.now();
-  const tick=now=>{const t=Math.min((now-t0)/dur,1);const e=t<.5?2*t*t:-1+(4-2*t)*t;el.textContent=Math.round(from+(to-from)*e).toLocaleString();if(t<1)requestAnimationFrame(tick)};
-  requestAnimationFrame(tick);
-}
+    function animCount(el, to, dur = 700) {
+      const from = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
+      if (from === to) return;
+      const t0 = performance.now();
+      const tick = now => { const t = Math.min((now - t0) / dur, 1); const e = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; el.textContent = Math.round(from + (to - from) * e).toLocaleString(); if (t < 1) requestAnimationFrame(tick) };
+      requestAnimationFrame(tick);
+    }
 
-function setStatus(state,label){
-  document.getElementById('sb-dot').className='status-dot '+state;
-  document.getElementById('sb-status-txt').textContent=label;
-}
+    function setStatus(state, label) {
+      document.getElementById('sb-dot').className = 'status-dot ' + state;
+      document.getElementById('sb-status-txt').textContent = label;
+    }
 
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 
-function logLine(msg,level=''){
-  const t=document.getElementById('term');
-  const cur=t.querySelector('.term-cursor');if(cur)cur.remove();
-  t.insertAdjacentHTML('beforeend',`<span class="${level?'l-'+level:''}">${esc(msg)}</span>\n`);
-  t.insertAdjacentHTML('beforeend','<span class="term-cursor"></span>');
-  t.scrollTop=t.scrollHeight;
-  document.getElementById('log-ts').textContent=new Date().toTimeString().slice(0,8);
-}
+    function logLine(msg, level = '') {
+      const t = document.getElementById('term');
+      const cur = t.querySelector('.term-cursor'); if (cur) cur.remove();
+      t.insertAdjacentHTML('beforeend', `<span class="${level ? 'l-' + level : ''}">${esc(msg)}</span>\n`);
+      t.insertAdjacentHTML('beforeend', '<span class="term-cursor"></span>');
+      t.scrollTop = t.scrollHeight;
+      document.getElementById('log-ts').textContent = new Date().toTimeString().slice(0, 8);
+    }
 
-function clearLog(){document.getElementById('term').innerHTML='<span class="l-cmd">$ // log cleared</span>\n<span class="term-cursor"></span>'}
+    function clearLog() { document.getElementById('term').innerHTML = '<span class="l-cmd">$ // log cleared</span>\n<span class="term-cursor"></span>' }
 
-async function loadConfig(){
-  try{
-    const cfg=await apiFetch('/api/config');
-    const ki=document.getElementById('cfg-api-key');
-    const oi=document.getElementById('cfg-offsets');
-    const kw=document.getElementById('cfg-keywords');
-    if(ki&&cfg.api_key)ki.value=cfg.api_key;
-    if(oi&&cfg.offsets)oi.value=cfg.offsets.join(', ');
-    if(kw&&cfg.keywords)kw.value=cfg.keywords;
-  }catch(e){console.warn('config load:',e.message)}
-}
+    async function loadConfig() {
+      try {
+        const cfg = await apiFetch('/api/config');
+        const ki = document.getElementById('cfg-api-key');
+        const oi = document.getElementById('cfg-offsets');
+        const kw = document.getElementById('cfg-keywords');
+        if (ki && cfg.api_key) ki.value = cfg.api_key;
+        if (oi && cfg.offsets) oi.value = cfg.offsets.join(', ');
+        if (kw && cfg.keywords) kw.value = cfg.keywords;
+      } catch (e) { console.warn('config load:', e.message) }
+    }
 
-let _sse=null;
+    let _sse = null;
+    let _currentScanId = null;
 
-async function startScan(){
-  if(S.scanning)return;
-  const keywords=document.getElementById('cfg-keywords').value;
-  const apiKey=document.getElementById('cfg-api-key').value;
-  const offsets=document.getElementById('cfg-offsets').value;
-  const skipAzure=document.getElementById('cfg-skip-azure').checked;
-  const useCache=document.getElementById('cfg-use-cache').checked;
-  let res;
-  try{res=await apiFetch('/api/scan/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keywords,api_key:apiKey,offsets,skip_azure_enum:skipAzure,use_cache:useCache})})}
-  catch(e){logLine('[ERROR] Cannot reach backend: '+e.message,'error');return}
-  if(res.error){logLine('[ERROR] '+res.error,'error');return}
-  S.scanning=true;
-  setStatus('running','SCANNING');
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('stop-btn').style.display='inline-flex';
-  document.getElementById('prog-fill').className='prog-fill ind';
-  clearLog();
-  logLine('$ python server.py  //  scan started','cmd');
-  logLine(res.message||'Scan started.','info');
-  if(_sse)_sse.close();
-  _sse=new EventSource(API+'/api/logs');
-  _sse.onmessage=e=>{
-    const item=JSON.parse(e.data);
-    if(item.level==='done'){_sse.close();onScanDone();return}
-    if(item.msg!=='__DONE__') logLine(item.msg,item.level);
-    if(item.level==='section') document.getElementById('scan-stage').textContent=item.msg;
-  };
-  _sse.onerror=()=>{if(!S.scanning)return;logLine('[WARN] Log stream disconnected, polling…','warn');_sse.close();pollUntilDone()};
-  pollStatus();
-}
+    async function startScan() {
+      if (S.scanning) return;
+      const keywords = document.getElementById('cfg-keywords').value;
+      const apiKey = document.getElementById('cfg-api-key').value;
+      const offsets = document.getElementById('cfg-offsets').value;
+      const skipAzure = document.getElementById('cfg-skip-azure').checked;
+      const useCache = document.getElementById('cfg-use-cache').checked;
+      let res;
+      try { res = await apiFetch('/api/scan/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keywords, api_key: apiKey, offsets, skip_azure_enum: skipAzure, use_cache: useCache }) }) }
+      catch (e) { logLine('[ERROR] Cannot reach backend: ' + e.message, 'error'); return }
+      if (res.error) { logLine('[ERROR] ' + res.error, 'error'); return }
+      _currentScanId = res.scan_id;
+      S.scanning = true;
+      setStatus('running', 'SCANNING');
+      document.getElementById('run-btn').disabled = true;
+      document.getElementById('stop-btn').style.display = 'inline-flex';
+      document.getElementById('prog-fill').className = 'prog-fill ind';
+      clearLog();
+      logLine('$ python server.py  //  scan started', 'cmd');
+      logLine(res.message || 'Scan started.', 'info');
+      if (_sse) _sse.close();
+      _sse = new EventSource(API + '/api/logs?scan_id=' + encodeURIComponent(_currentScanId));
+      _sse.onmessage = e => {
+        const item = JSON.parse(e.data);
+        if (item.level === 'done') { _sse.close(); onScanDone(); return }
+        if (item.msg !== '__DONE__') logLine(item.msg, item.level);
+        if (item.level === 'section') document.getElementById('scan-stage').textContent = item.msg;
+      };
+      _sse.onerror = () => { if (!S.scanning) return; logLine('[WARN] Log stream disconnected, polling…', 'warn'); _sse.close(); pollUntilDone() };
+      pollStatus();
+    }
 
-function pollStatus(){
-  if(!S.scanning)return;
-  apiFetch('/api/status').then(st=>{
-    const pct=st.progress||0;
-    const f=document.getElementById('prog-fill');f.className='prog-fill';f.style.width=pct+'%';
-    if(!st.running&&st.finished){onScanDone();return}
-    setTimeout(pollStatus,800);
-  }).catch(()=>setTimeout(pollStatus,1500));
-}
+    function pollStatus() {
+      if (!S.scanning || !_currentScanId) return;
+      apiFetch('/api/status?scan_id=' + encodeURIComponent(_currentScanId)).then(st => {
+        const pct = st.progress || 0;
+        const f = document.getElementById('prog-fill'); f.className = 'prog-fill'; f.style.width = pct + '%';
+        if (!st.running && st.finished) { onScanDone(); return }
+        setTimeout(pollStatus, 800);
+      }).catch(() => setTimeout(pollStatus, 1500));
+    }
 
-function pollUntilDone(){
-  apiFetch('/api/status').then(st=>{if(!st.running&&st.finished)onScanDone();else setTimeout(pollUntilDone,1000)}).catch(()=>setTimeout(pollUntilDone,2000));
-}
+    function pollUntilDone() {
+      if (!_currentScanId) { return }
+      apiFetch('/api/status?scan_id=' + encodeURIComponent(_currentScanId)).then(st => { if (!st.running && st.finished) onScanDone(); else setTimeout(pollUntilDone, 1000) }).catch(() => setTimeout(pollUntilDone, 2000));
+    }
 
-async function onScanDone(){
-  if(!S.scanning)return;
-  S.scanning=false;
-  const st=await apiFetch('/api/status').catch(()=>({}));
-  S.counts={AWS:0,Azure:0,GCP:0,DigitalOcean:0,...(st.counts||{})};
-  S.currentTs=st.timestamp||null;
-  S.extCounts=st.ext_counts||{};
-  S.blobUrls=st.blob_urls||[];
-  S.keywordCounts=st.keyword_counts||{};
-  if(st.error){setStatus('error','ERROR');logLine('[ERROR] '+st.error,'error')}
-  else{
-    setStatus('done','DONE');
-    logLine('// Scan complete.','ok');
-    const tot=Object.values(S.counts).reduce((a,b)=>a+b,0);
-    logLine(`// AWS:${S.counts.AWS}  Azure:${S.counts.Azure}  GCP:${S.counts.GCP}  DO:${S.counts.DigitalOcean}  TOTAL:${tot}`,'ok');
-    document.getElementById('sb-last-ts').textContent=(S.currentTs||'').slice(0,10);
-    updateBadges();renderOverview();renderAzure();
-  }
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('stop-btn').style.display='none';
-  const f=document.getElementById('prog-fill');f.className='prog-fill';f.style.width='100%';
-  document.getElementById('scan-stage').textContent=st.error?'Error':'Finished';
-  refreshHistory();
-  setTimeout(()=>{f.style.width='0%';document.getElementById('scan-stage').textContent=''},3000);
-}
+    async function onScanDone() {
+      if (!S.scanning) return;
+      S.scanning = false;
+      const st = _currentScanId
+        ? await apiFetch('/api/status?scan_id=' + encodeURIComponent(_currentScanId)).catch(() => ({}))
+        : {};
+      S.counts = { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0, ...(st.counts || {}) };
+      S.currentTs = st.timestamp || null;
+      S.extCounts = st.ext_counts || {};
+      S.blobUrls = st.blob_urls || [];
+      S.keywordCounts = st.keyword_counts || {};
+      if (st.error) { setStatus('error', 'ERROR'); logLine('[ERROR] ' + st.error, 'error') }
+      else {
+        setStatus('done', 'DONE');
+        logLine('// Scan complete.', 'ok');
+        const tot = Object.values(S.counts).reduce((a, b) => a + b, 0);
+        logLine(`// AWS:${S.counts.AWS}  Azure:${S.counts.Azure}  GCP:${S.counts.GCP}  DO:${S.counts.DigitalOcean}  TOTAL:${tot}`, 'ok');
+        document.getElementById('sb-last-ts').textContent = (S.currentTs || '').slice(0, 10);
+        updateBadges(); renderOverview(); renderAzure();
+      }
+      document.getElementById('run-btn').disabled = false;
+      document.getElementById('stop-btn').style.display = 'none';
+      const f = document.getElementById('prog-fill'); f.className = 'prog-fill'; f.style.width = '100%';
+      document.getElementById('scan-stage').textContent = st.error ? 'Error' : 'Finished';
+      refreshHistory();
+      setTimeout(() => { f.style.width = '0%'; document.getElementById('scan-stage').textContent = '' }, 3000);
+    }
 
-async function stopScan(){
-  try{await apiFetch('/api/scan/stop',{method:'POST'})}catch(e){}
-  logLine('// Stop requested.','warn');
-}
+    async function stopScan() {
+      const body = _currentScanId ? JSON.stringify({ scan_id: _currentScanId }) : '{}';
+      try { await apiFetch('/api/scan/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }) } catch (e) { }
+      logLine('// Stop requested.', 'warn');
+    }
 
-function renderOverview(){
-  const c=S.counts;
-  const total=Object.values(c).reduce((a,b)=>a+b,0);
-  animCount(document.getElementById('s-total'),total);
-  animCount(document.getElementById('s-aws'),c.AWS||0);
-  animCount(document.getElementById('s-azure'),c.Azure||0);
-  animCount(document.getElementById('s-gcp'),c.GCP||0);
-  animCount(document.getElementById('s-do'),c.DigitalOcean||0);
-  const nd=document.getElementById('overview-nodata');if(nd)nd.style.display=total>0?'none':'flex';
-  const max=Math.max(...Object.values(c),1);
-  document.getElementById('bars').innerHTML=total>0?
-    Object.entries(c).map(([p,n])=>`<div class="bar-row"><div class="bar-name">${p}</div><div class="bar-track"><div class="bar-fill" style="width:${(n/max*100).toFixed(1)}%;background:${COLORS[p]}"></div></div><div class="bar-val">${n.toLocaleString()}</div></div>`).join(''):
-    '<div class="empty"><span class="empty-icon">📊</span>No data</div>';
-  renderDonut(c,total);
-  renderKeywords();
-}
+    function renderKwFilter() {
+      const keys = Object.keys(S.keywordCounts);
+      const wrap = document.getElementById('kw-filter-wrap');
+      if (keys.length < 2) { wrap.style.display = 'none'; S.filterKw = null; return }
+      wrap.style.display = '';
+      // Reset filterKw if it no longer exists in current data
+      if (S.filterKw && !S.keywordCounts[S.filterKw]) S.filterKw = null;
+      document.getElementById('kw-filter-pills').innerHTML = [
+        `<button class="btn btn-sm ${!S.filterKw ? 'btn-primary' : 'btn-ghost'}" onclick="selectKwFilter(null)">All</button>`,
+        ...keys.map(kw => `<button class="btn btn-sm ${S.filterKw === kw ? 'btn-primary' : 'btn-ghost'}" onclick="selectKwFilter(${JSON.stringify(kw)})">${esc(kw)}</button>`)
+      ].join('');
+    }
 
-function renderDonut(c,total){
-  const svg=document.getElementById('donut'),leg=document.getElementById('donut-leg');
-  const cx=55,cy=55,r=42,sw=14,circ=2*Math.PI*r;
-  if(!total){svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--edge)" stroke-width="${sw}"/><text x="${cx}" y="${cy+4}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no data</text>`;leg.innerHTML='';return}
-  let off=0,circles='';
-  Object.entries(c).forEach(([p,n])=>{if(!n)return;const pct=n/total,dash=circ*pct,gap=circ-dash,rot=-90+off*360;circles+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COLORS[p]}" stroke-width="${sw}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" style="transform:rotate(${rot}deg);transform-origin:${cx}px ${cy}px"/>`;off+=pct});
-  const top=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];
-  circles+=`<text x="${cx}" y="${cy-2}" text-anchor="middle" fill="var(--ink)" font-family="Space Mono" font-size="11" font-weight="700">${(top[1]/total*100).toFixed(0)}%</text><text x="${cx}" y="${cy+10}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="7">${top[0]}</text>`;
-  svg.innerHTML=circles;
-  leg.innerHTML=Object.entries(c).map(([p,n])=>`<div class="leg"><div class="leg-dot" style="background:${COLORS[p]}"></div><div class="leg-name">${p}</div><div class="leg-val">${total?(n/total*100).toFixed(1)+'%':'—'}</div></div>`).join('');
-}
+    function selectKwFilter(kw) { S.filterKw = kw; renderOverview() }
 
-function _kwDonutSVG(c,total){
-  const cx=55,cy=55,r=42,sw=14,circ=2*Math.PI*r;
-  if(!total)return`<svg width="90" height="90" viewBox="0 0 110 110"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--edge)" stroke-width="${sw}"/><text x="${cx}" y="${cy+4}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no data</text></svg>`;
-  let off=0,circles='';
-  Object.entries(c).forEach(([p,n])=>{if(!n)return;const pct=n/total,dash=circ*pct,gap=circ-dash,rot=-90+off*360;circles+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COLORS[p]}" stroke-width="${sw}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" style="transform:rotate(${rot}deg);transform-origin:${cx}px ${cy}px"/>`;off+=pct});
-  const top=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];
-  circles+=`<text x="${cx}" y="${cy-2}" text-anchor="middle" fill="var(--ink)" font-family="Space Mono" font-size="11" font-weight="700">${(top[1]/total*100).toFixed(0)}%</text><text x="${cx}" y="${cy+10}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="7">${top[0]}</text>`;
-  return`<svg width="90" height="90" viewBox="0 0 110 110">${circles}</svg>`;
-}
+    function renderOverview() {
+      renderKwFilter();
+      const c = S.filterKw && S.keywordCounts[S.filterKw]
+        ? { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0, ...S.keywordCounts[S.filterKw] }
+        : S.counts;
+      const total = Object.values(c).reduce((a, b) => a + b, 0);
+      // Update subtitle on the Total tile to show filtered keyword
+      const totalSub = document.querySelector('#view-overview .stat.total .stat-sub');
+      if (totalSub) totalSub.textContent = S.filterKw ? `keyword: ${S.filterKw}` : 'all providers';
+      animCount(document.getElementById('s-total'), total);
+      animCount(document.getElementById('s-aws'), c.AWS || 0);
+      animCount(document.getElementById('s-azure'), c.Azure || 0);
+      animCount(document.getElementById('s-gcp'), c.GCP || 0);
+      animCount(document.getElementById('s-do'), c.DigitalOcean || 0);
+      const nd = document.getElementById('overview-nodata'); if (nd) nd.style.display = Object.values(S.counts).some(v => v > 0) ? 'none' : 'flex';
+      const max = Math.max(...Object.values(c), 1);
+      document.getElementById('bars').innerHTML = total > 0 ?
+        Object.entries(c).map(([p, n]) => `<div class="bar-row"><div class="bar-name">${p}</div><div class="bar-track"><div class="bar-fill" style="width:${(n / max * 100).toFixed(1)}%;background:${COLORS[p]}"></div></div><div class="bar-val">${n.toLocaleString()}</div></div>`).join('') :
+        '<div class="empty"><span class="empty-icon">📊</span>No data</div>';
+      renderDonut(c, total);
+      renderKeywords();
+    }
 
-function renderKeywords(){
-  const kc=S.keywordCounts;
-  const section=document.getElementById('kw-section');
-  const keys=Object.keys(kc);
-  if(!keys.length){section.style.display='none';return}
-  section.style.display='';
-  document.getElementById('kw-grid').innerHTML=keys.map(kw=>{
-    const c=kc[kw];
-    const total=Object.values(c).reduce((a,b)=>a+b,0);
-    const max=Math.max(...Object.values(c),1);
-    const bars=Object.entries(c).map(([p,n])=>n?`<div class="bar-row"><div class="bar-name">${p}</div><div class="bar-track"><div class="bar-fill" style="width:${(n/max*100).toFixed(1)}%;background:${COLORS[p]}"></div></div><div class="bar-val">${n.toLocaleString()}</div></div>`:'').join('');
-    const leg=Object.entries(c).map(([p,n])=>n?`<div class="leg"><div class="leg-dot" style="background:${COLORS[p]}"></div><div class="leg-name">${p}</div><div class="leg-val">${(n/total*100).toFixed(1)}%</div></div>`:'').join('');
-    return`<div class="card mt">
-      <div class="ch"><div class="ct">${esc(kw)}</div><span class="cb">${total.toLocaleString()} files</span></div>
+    function renderDonut(c, total) {
+      const svg = document.getElementById('donut'), leg = document.getElementById('donut-leg');
+      const cx = 55, cy = 55, r = 42, sw = 14, circ = 2 * Math.PI * r;
+      if (!total) { svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--edge)" stroke-width="${sw}"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no data</text>`; leg.innerHTML = ''; return }
+      let off = 0, circles = '';
+      Object.entries(c).forEach(([p, n]) => { if (!n) return; const pct = n / total, dash = circ * pct, gap = circ - dash, rot = -90 + off * 360; circles += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COLORS[p]}" stroke-width="${sw}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" style="transform:rotate(${rot}deg);transform-origin:${cx}px ${cy}px"/>`; off += pct });
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+      circles += `<text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="var(--ink)" font-family="Space Mono" font-size="11" font-weight="700">${(top[1] / total * 100).toFixed(0)}%</text><text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="7">${top[0]}</text>`;
+      svg.innerHTML = circles;
+      leg.innerHTML = Object.entries(c).map(([p, n]) => `<div class="leg"><div class="leg-dot" style="background:${COLORS[p]}"></div><div class="leg-name">${p}</div><div class="leg-val">${total ? (n / total * 100).toFixed(1) + '%' : '—'}</div></div>`).join('');
+    }
+
+    function _kwDonutSVG(c, total) {
+      const cx = 55, cy = 55, r = 42, sw = 14, circ = 2 * Math.PI * r;
+      if (!total) return `<svg width="90" height="90" viewBox="0 0 110 110"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--edge)" stroke-width="${sw}"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="8">no data</text></svg>`;
+      let off = 0, circles = '';
+      Object.entries(c).forEach(([p, n]) => { if (!n) return; const pct = n / total, dash = circ * pct, gap = circ - dash, rot = -90 + off * 360; circles += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COLORS[p]}" stroke-width="${sw}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" style="transform:rotate(${rot}deg);transform-origin:${cx}px ${cy}px"/>`; off += pct });
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+      circles += `<text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="var(--ink)" font-family="Space Mono" font-size="11" font-weight="700">${(top[1] / total * 100).toFixed(0)}%</text><text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="var(--ink3)" font-family="Space Mono" font-size="7">${top[0]}</text>`;
+      return `<svg width="90" height="90" viewBox="0 0 110 110">${circles}</svg>`;
+    }
+
+    function renderKeywords() {
+      const kc = S.keywordCounts;
+      const section = document.getElementById('kw-section');
+      const keys = Object.keys(kc);
+      if (!keys.length) { section.style.display = 'none'; return }
+      section.style.display = '';
+      document.getElementById('kw-grid').innerHTML = keys.map(kw => {
+        const c = kc[kw];
+        const total = Object.values(c).reduce((a, b) => a + b, 0);
+        const max = Math.max(...Object.values(c), 1);
+        const bars = Object.entries(c).map(([p, n]) => n ? `<div class="bar-row"><div class="bar-name">${p}</div><div class="bar-track"><div class="bar-fill" style="width:${(n / max * 100).toFixed(1)}%;background:${COLORS[p]}"></div></div><div class="bar-val">${n.toLocaleString()}</div></div>` : '').join('');
+        const leg = Object.entries(c).map(([p, n]) => n ? `<div class="leg"><div class="leg-dot" style="background:${COLORS[p]}"></div><div class="leg-name">${p}</div><div class="leg-val">${(n / total * 100).toFixed(1)}%</div></div>` : '').join('');
+        const isActive = S.filterKw === kw;
+        return `<div class="card mt" id="kw-card-${btoa(kw).replace(/[^a-z0-9]/gi, '')}" style="cursor:pointer;border:1.5px solid ${isActive ? 'var(--g)' : 'transparent'};transition:border-color .2s" onclick="selectKwFilter(${isActive ? 'null' : JSON.stringify(kw)})">
+      <div class="ch"><div class="ct">${esc(kw)}</div><span class="cb" style="color:${isActive ? 'var(--g)' : 'var(--ink3)'}">${isActive ? '● filtered · ' : ''}${total.toLocaleString()} files</span></div>
       <div class="g2" style="margin:0">
         <div>
           <div class="slabel">Count by Provider</div>
-          <div class="bars">${bars||'<div class="empty"><span class="empty-icon">📊</span>No data</div>'}</div>
+          <div class="bars">${bars || '<div class="empty"><span class="empty-icon">📊</span>No data</div>'}</div>
         </div>
         <div>
           <div class="slabel">Provider Share</div>
-          <div class="donut-wrap">${_kwDonutSVG(c,total)}<div class="donut-legend">${leg}</div></div>
+          <div class="donut-wrap">${_kwDonutSVG(c, total)}<div class="donut-legend">${leg}</div></div>
         </div>
       </div>
     </div>`;
-  }).join('');
-}
+      }).join('');
+    }
 
-function selectProvider(prov){
-  S.currentProv=prov;
-  document.querySelectorAll('[data-prov]').forEach(b=>{b.className=b.dataset.prov===prov?'btn btn-primary btn-sm':'btn btn-ghost btn-sm'});
-  loadProviderData(prov);
-}
+    function selectProvider(prov) {
+      S.currentProv = prov;
+      document.querySelectorAll('[data-prov]').forEach(b => { b.className = b.dataset.prov === prov ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm' });
+      loadProviderData(prov);
+    }
 
-async function loadProviderData(prov){
-  document.getElementById('prov-title').textContent=PLABELS[prov]+' Buckets';
-  if(!S.currentTs){document.getElementById('prov-body').innerHTML='<tr><td colspan="3"><div class="empty"><span class="empty-icon">🪣</span>Run a scan first</div></td></tr>';return}
-  document.getElementById('prov-body').innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--ink3);font-family:var(--mono);font-size:.7rem">Loading…</td></tr>';
-  try{
-    const d=await apiFetch(`/api/outputs/${S.currentTs}/csv/${prov}`);
-    document.getElementById('prov-head').innerHTML=d.headers?.length?'<tr>'+d.headers.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr>':'<tr><th>Bucket</th><th>URL</th></tr>';
-    document.getElementById('prov-count').textContent=`${d.total} rows`;
-    if(!d.rows?.length){document.getElementById('prov-body').innerHTML=`<tr><td colspan="${d.headers?.length||2}"><div class="empty"><span class="empty-icon">🪣</span>No data</div></td></tr>`}
-    else document.getElementById('prov-body').innerHTML=d.rows.map(row=>`<tr>${row.map(c=>`<td class="truncate" data-tip="${esc(c)}">${esc(c)}</td>`).join('')}</tr>`).join('');
-  }catch(e){document.getElementById('prov-body').innerHTML=`<tr><td colspan="3" style="color:var(--r);font-family:var(--mono)">Error: ${esc(e.message)}</td></tr>`}
-}
+    async function loadProviderData(prov) {
+      document.getElementById('prov-title').textContent = PLABELS[prov] + ' Buckets';
+      if (!S.currentTs) { document.getElementById('prov-body').innerHTML = '<tr><td colspan="3"><div class="empty"><span class="empty-icon">🪣</span>Run a scan first</div></td></tr>'; return }
+      document.getElementById('prov-body').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--ink3);font-family:var(--mono);font-size:.7rem">Loading…</td></tr>';
+      try {
+        const d = await apiFetch(`/api/outputs/${S.currentTs}/csv/${prov}`);
+        document.getElementById('prov-head').innerHTML = d.headers?.length ? '<tr>' + d.headers.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>' : '<tr><th>Bucket</th><th>URL</th></tr>';
+        document.getElementById('prov-count').textContent = `${d.total} rows`;
+        if (!d.rows?.length) { document.getElementById('prov-body').innerHTML = `<tr><td colspan="${d.headers?.length || 2}"><div class="empty"><span class="empty-icon">🪣</span>No data</div></td></tr>` }
+        else document.getElementById('prov-body').innerHTML = d.rows.map(row => `<tr>${row.map(c => `<td class="truncate" data-tip="${esc(c)}">${esc(c)}</td>`).join('')}</tr>`).join('');
+      } catch (e) { document.getElementById('prov-body').innerHTML = `<tr><td colspan="3" style="color:var(--r);font-family:var(--mono)">Error: ${esc(e.message)}</td></tr>` }
+    }
 
-function downloadCurrent(){if(!S.currentTs)return;window.location.href=`${API}/api/outputs/${S.currentTs}/download/${encodeURIComponent(S.currentProv+'_'+S.currentTs+'.csv')}`}
+    function downloadCurrent() { if (!S.currentTs) return; window.location.href = `${API}/api/outputs/${S.currentTs}/download/${encodeURIComponent(S.currentProv + '_' + S.currentTs + '.csv')}` }
 
-async function loadAzureData(){
-  if(!S.currentTs)return;
-  try{
-    const ec=await apiFetch(`/api/outputs/${S.currentTs}/ext_counts`);
-    const ul=await apiFetch(`/api/outputs/${S.currentTs}/urls`);
-    S.extCounts=ec.counts||{};S.blobUrls=ul.urls||[];renderAzure();
-  }catch(e){console.warn('azure:',e)}
-}
+    async function loadAzureData() {
+      if (!S.currentTs) return;
+      try {
+        const ec = await apiFetch(`/api/outputs/${S.currentTs}/ext_counts`);
+        const ul = await apiFetch(`/api/outputs/${S.currentTs}/urls`);
+        S.extCounts = ec.counts || {}; S.blobUrls = ul.urls || []; renderAzure();
+      } catch (e) { console.warn('azure:', e) }
+    }
 
-function renderAzure(){
-  const ec=S.extCounts,urls=S.blobUrls;
-  document.getElementById('ae-total').textContent=`${urls.length} URLs`;
-  document.getElementById('url-count').textContent=`${Math.min(urls.length,100)} shown`;
-  // Always render URL table regardless of ext_counts state
-  document.getElementById('tbl-urls').innerHTML=urls.length?urls.map((u,i)=>{const ext=u.split('.').pop()?.split('?')[0]||'';return`<tr><td style="color:var(--ink3)">${i+1}</td><td style="word-break:break-all">${esc(u)}</td><td><span class="tag tag-az">.${esc(ext)}</span></td></tr>`}).join(''):'<tr><td colspan="3"><div class="empty"><span class="empty-icon">🔗</span>No URLs</div></td></tr>';
-  const keys=Object.keys(ec);
-  if(!keys.length){document.getElementById('ext-chips').innerHTML='<div class="empty"><span class="empty-icon">📂</span>No enumeration data</div>';document.getElementById('ext-bars').innerHTML='<div class="empty"><span class="empty-icon">📊</span>No data</div>';return}
-  document.getElementById('ext-chips').innerHTML=Object.entries(ec).map(([e,n])=>`<div class="chip"><span class="chip-ext">${esc(e)}</span><span class="chip-n">${n}</span></div>`).join('');
-  const top8=Object.entries(ec).slice(0,8);const max=top8[0]?.[1]||1;
-  document.getElementById('ext-bars').innerHTML=top8.map(([e,n])=>`<div class="bar-row"><div class="bar-name" style="color:var(--az)">${esc(e)}</div><div class="bar-track"><div class="bar-fill" style="width:${(n/max*100).toFixed(1)}%;background:var(--az)"></div></div><div class="bar-val">${n}</div></div>`).join('');
-}
+    function renderAzure() {
+      const ec = S.extCounts, urls = S.blobUrls;
+      document.getElementById('ae-total').textContent = `${urls.length} URLs`;
+      document.getElementById('url-count').textContent = `${Math.min(urls.length, 100)} shown`;
+      // Always render URL table regardless of ext_counts state
+      document.getElementById('tbl-urls').innerHTML = urls.length ? urls.map((u, i) => { const ext = u.split('.').pop()?.split('?')[0] || ''; return `<tr><td style="color:var(--ink3)">${i + 1}</td><td style="word-break:break-all">${esc(u)}</td><td><span class="tag tag-az">.${esc(ext)}</span></td></tr>` }).join('') : '<tr><td colspan="3"><div class="empty"><span class="empty-icon">🔗</span>No URLs</div></td></tr>';
+      const keys = Object.keys(ec);
+      if (!keys.length) { document.getElementById('ext-chips').innerHTML = '<div class="empty"><span class="empty-icon">📂</span>No enumeration data</div>'; document.getElementById('ext-bars').innerHTML = '<div class="empty"><span class="empty-icon">📊</span>No data</div>'; return }
+      document.getElementById('ext-chips').innerHTML = Object.entries(ec).map(([e, n]) => `<div class="chip"><span class="chip-ext">${esc(e)}</span><span class="chip-n">${n}</span></div>`).join('');
+      const top8 = Object.entries(ec).slice(0, 8); const max = top8[0]?.[1] || 1;
+      document.getElementById('ext-bars').innerHTML = top8.map(([e, n]) => `<div class="bar-row"><div class="bar-name" style="color:var(--az)">${esc(e)}</div><div class="bar-track"><div class="bar-fill" style="width:${(n / max * 100).toFixed(1)}%;background:var(--az)"></div></div><div class="bar-val">${n}</div></div>`).join('');
+    }
 
-async function loadOutputDirs(){
-  try{
-    const d=await apiFetch('/api/outputs');S.outputDirs=d.dirs||[];
-    const sel=document.getElementById('run-select');const prev=sel.value;
-    sel.innerHTML='<option value="">— Select a scan run —</option>';
-    S.outputDirs.forEach(dir=>{const s=dir.summary||{};const opt=document.createElement('option');opt.value=dir.name;opt.textContent=`${dir.name}  [${s.total||0} buckets]`;sel.appendChild(opt)});
-    if(prev&&sel.querySelector(`option[value="${prev}"]`))sel.value=prev;
-    loadRunFiles();
-  }catch(e){console.warn('output dirs:',e)}
-}
+    async function loadOutputDirs() {
+      try {
+        const d = await apiFetch('/api/outputs'); S.outputDirs = d.dirs || [];
+        const sel = document.getElementById('run-select'); const prev = sel.value;
+        sel.innerHTML = '<option value="">— Select a scan run —</option>';
+        S.outputDirs.forEach(dir => { const s = dir.summary || {}; const opt = document.createElement('option'); opt.value = dir.name; opt.textContent = `${dir.name}  [${s.total || 0} buckets]`; sel.appendChild(opt) });
+        if (prev && sel.querySelector(`option[value="${prev}"]`)) sel.value = prev;
+        loadRunFiles();
+      } catch (e) { console.warn('output dirs:', e) }
+    }
 
-async function loadRunFiles(){
-  const name=document.getElementById('run-select').value;
-  const card=document.getElementById('file-list');
-  if(!name){card.innerHTML='<div class="empty"><span class="empty-icon">📁</span>Select a scan run</div>';return}
-  const ts=name.replace('_Outputs','');
-  try{
-    const d=await apiFetch(`/api/outputs/${ts}/files`);
-    if(!d.files?.length){card.innerHTML='<div class="empty"><span class="empty-icon">📂</span>No files</div>';return}
-    const e2i={'.csv':'📊','.txt':'📄','.json':'⚙'};
-    card.innerHTML=d.files.map(f=>`<div class="file-row"><div class="file-icon">${e2i[f.ext]||'📄'}</div><div class="file-name">${esc(f.name)}</div><div class="file-size">${fmtSize(f.size)}</div><button class="btn btn-ghost btn-sm" onclick="dlFile('${esc(ts)}','${esc(f.name)}')">⬇</button></div>`).join('');
-  }catch(e){card.innerHTML=`<div class="empty" style="color:var(--r)">Error: ${esc(e.message)}</div>`}
-}
+    async function loadRunFiles() {
+      const name = document.getElementById('run-select').value;
+      const card = document.getElementById('file-list');
+      if (!name) { card.innerHTML = '<div class="empty"><span class="empty-icon">📁</span>Select a scan run</div>'; return }
+      const ts = name.replace('_Outputs', '');
+      try {
+        const d = await apiFetch(`/api/outputs/${ts}/files`);
+        if (!d.files?.length) { card.innerHTML = '<div class="empty"><span class="empty-icon">📂</span>No files</div>'; return }
+        const e2i = { '.csv': '📊', '.txt': '📄', '.json': '⚙' };
+        card.innerHTML = d.files.map(f => `<div class="file-row"><div class="file-icon">${e2i[f.ext] || '📄'}</div><div class="file-name">${esc(f.name)}</div><div class="file-size">${fmtSize(f.size)}</div><button class="btn btn-ghost btn-sm" onclick="dlFile('${esc(ts)}','${esc(f.name)}')">⬇</button></div>`).join('');
+      } catch (e) { card.innerHTML = `<div class="empty" style="color:var(--r)">Error: ${esc(e.message)}</div>` }
+    }
 
-function dlFile(ts,name){window.location.href=`${API}/api/outputs/${ts}/download/${encodeURIComponent(name)}`}
-function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB'}
+    function dlFile(ts, name) { window.location.href = `${API}/api/outputs/${ts}/download/${encodeURIComponent(name)}` }
+    function fmtSize(b) { if (b < 1024) return b + 'B'; if (b < 1048576) return (b / 1024).toFixed(1) + 'KB'; return (b / 1048576).toFixed(1) + 'MB' }
 
-async function refreshHistory(){
-  try{const d=await apiFetch('/api/history');S.history=d.history||[];renderHistory()}
-  catch(e){console.warn('history:',e)}
-}
+    async function refreshHistory() {
+      try { const d = await apiFetch('/api/history'); S.history = d.history || []; renderHistory() }
+      catch (e) { console.warn('history:', e) }
+    }
 
-function renderHistory(){
-  const tbody=document.getElementById('tbl-hist');
-  document.getElementById('hist-count').textContent=`${S.history.length} run${S.history.length!==1?'s':''}`;
-  document.getElementById('nb-hist').textContent=S.history.length;
-  if(!S.history.length){tbody.innerHTML='<tr><td colspan="9"><div class="empty"><span class="empty-icon">🕐</span>No scans yet</div></td></tr>';return}
-  tbody.innerHTML=S.history.map(r=>{
-    const c=r.counts||{};
-    const st=r.status==='ok'?'<span class="tag tag-ok">✓ done</span>':'<span class="tag tag-err">✗ error</span>';
-    return`<tr><td>${esc(r.ts)}</td><td>${r.keywords} kw${r.kw_sample?` (${esc(r.kw_sample)})`:''}</td><td><span class="tag tag-aws">${c.AWS||0}</span></td><td><span class="tag tag-az">${c.Azure||0}</span></td><td><span class="tag tag-gcp">${c.GCP||0}</span></td><td><span class="tag tag-do">${c.DigitalOcean||0}</span></td><td style="font-weight:700">${(r.total||0).toLocaleString()}</td><td>${st}</td><td><div style="display:flex;gap:5px"><button class="btn btn-ghost btn-sm" onclick="loadRunTs('${esc(r.ts)}')">View</button><button class="btn btn-danger btn-sm" onclick="deleteRun('${esc(r.ts)}')" data-tip="Delete scan &amp; files">✕</button></div></td></tr>`;
-  }).join('');
-}
+    function renderHistory() {
+      const tbody = document.getElementById('tbl-hist');
+      document.getElementById('hist-count').textContent = `${S.history.length} run${S.history.length !== 1 ? 's' : ''}`;
+      document.getElementById('nb-hist').textContent = S.history.length;
+      if (!S.history.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty"><span class="empty-icon">🕐</span>No scans yet</div></td></tr>'; return }
+      tbody.innerHTML = S.history.map(r => {
+        const c = r.counts || {};
+        const st = r.status === 'ok' ? '<span class="tag tag-ok">✓ done</span>' : '<span class="tag tag-err">✗ error</span>';
+        return `<tr><td>${esc(r.ts)}</td><td>${r.keywords} kw${r.kw_sample ? ` (${esc(r.kw_sample)})` : ''}</td><td><span class="tag tag-aws">${c.AWS || 0}</span></td><td><span class="tag tag-az">${c.Azure || 0}</span></td><td><span class="tag tag-gcp">${c.GCP || 0}</span></td><td><span class="tag tag-do">${c.DigitalOcean || 0}</span></td><td style="font-weight:700">${(r.total || 0).toLocaleString()}</td><td>${st}</td><td><div style="display:flex;gap:5px"><button class="btn btn-ghost btn-sm" onclick="loadRunTs('${esc(r.ts)}')">View</button><button class="btn btn-danger btn-sm" onclick="deleteRun('${esc(r.ts)}')" data-tip="Delete scan &amp; files">✕</button></div></td></tr>`;
+      }).join('');
+    }
 
-async function loadRunTs(ts){
-  S.currentTs=ts;
-  try{const d=await apiFetch(`/api/outputs/${ts}/summary`);S.counts=d.counts||{};S.extCounts=d.extCounts||{};S.keywordCounts=d.keyword_counts||{}}catch(e){}
-  document.getElementById('sb-last-ts').textContent=ts.slice(0,10);
-  updateBadges();renderOverview();loadProviderData(S.currentProv);
-  await loadAzureData();updateBadges();nav('overview');
-}
+    async function loadRunTs(ts) {
+      S.currentTs = ts; S.filterKw = null;
+      try { const d = await apiFetch(`/api/outputs/${ts}/summary`); S.counts = d.counts || {}; S.extCounts = d.extCounts || {}; S.keywordCounts = d.keyword_counts || {} } catch (e) { }
+      document.getElementById('sb-last-ts').textContent = ts.slice(0, 10);
+      updateBadges(); renderOverview(); loadProviderData(S.currentProv);
+      await loadAzureData(); updateBadges(); nav('overview');
+    }
 
-async function loadLatestRun(){
-  try{
-    const d=await apiFetch('/api/outputs');const dirs=d.dirs||[];
-    if(!dirs.length)return;
-    const ts=dirs[0].name.replace('_Outputs','');await loadRunTs(ts);
-  }catch(e){console.warn('latest run:',e)}
-}
+    async function loadLatestRun() {
+      try {
+        const d = await apiFetch('/api/outputs'); const dirs = d.dirs || [];
+        if (!dirs.length) return;
+        const ts = dirs[0].name.replace('_Outputs', ''); await loadRunTs(ts);
+      } catch (e) { console.warn('latest run:', e) }
+    }
 
-function updateBadges(){
-  const total=Object.values(S.counts).reduce((a,b)=>a+b,0);
-  document.getElementById('nb-buckets').textContent=total.toLocaleString();
-  document.getElementById('nb-azure').textContent=S.blobUrls.length;
-}
+    function updateBadges() {
+      const total = Object.values(S.counts).reduce((a, b) => a + b, 0);
+      document.getElementById('nb-buckets').textContent = total.toLocaleString();
+      document.getElementById('nb-azure').textContent = S.blobUrls.length;
+    }
 
-async function pollBackend(){
-  try{
-    const st=await apiFetch('/api/status');
-    if(st.running&&!S.scanning){S.scanning=true;setStatus('running','SCANNING');document.getElementById('run-btn').disabled=true;if(!_sse||_sse.readyState===2){_sse=new EventSource(API+'/api/logs');_sse.onmessage=e=>{const item=JSON.parse(e.data);if(item.level==='done'){_sse.close();onScanDone();return}if(item.msg!=='__DONE__')logLine(item.msg,item.level)}};pollStatus()}
-    else if(!st.running&&st.finished&&st.counts){S.counts=st.counts;S.currentTs=st.timestamp;S.extCounts=st.ext_counts||{};S.blobUrls=st.blob_urls||[];S.keywordCounts=st.keyword_counts||{};document.getElementById('sb-last-ts').textContent=(st.timestamp||'').slice(0,10);updateBadges();renderOverview()}
-  }catch(e){setStatus('','OFFLINE')}
-  setTimeout(pollBackend,5000);
-}
+    async function pollBackend() {
+      try {
+        const st = await apiFetch('/api/status');
+        // st now has: {any_running, running_scans:[...], ...latest_finished_state}
+        if (st.any_running && !S.scanning) {
+          // A scan is running (possibly started externally/scheduled) — latch onto latest
+          const latest = st.running_scans[st.running_scans.length - 1];
+          if (latest && !_currentScanId) {
+            _currentScanId = latest.id || latest.timestamp;
+            S.scanning = true; setStatus('running', 'SCANNING');
+            document.getElementById('run-btn').disabled = true;
+            if (!_sse || _sse.readyState === 2) {
+              _sse = new EventSource(API + '/api/logs?scan_id=' + encodeURIComponent(_currentScanId));
+              _sse.onmessage = e => { const item = JSON.parse(e.data); if (item.level === 'done') { _sse.close(); onScanDone(); return } if (item.msg !== '__DONE__') logLine(item.msg, item.level) };
+            }
+            pollStatus();
+          }
+        } else if (!st.any_running && !S.scanning && st.counts) {
+          S.counts = st.counts; S.currentTs = st.timestamp; S.extCounts = st.ext_counts || {};
+          S.blobUrls = st.blob_urls || []; S.keywordCounts = st.keyword_counts || {};
+          document.getElementById('sb-last-ts').textContent = (st.timestamp || '').slice(0, 10);
+          updateBadges(); renderOverview();
+        }
+      } catch (e) { setStatus('', 'OFFLINE') }
+      setTimeout(pollBackend, 5000);
+    }
 
-async function deleteRun(ts){
-  if(!confirm(`Delete scan ${ts}?\nThis will permanently remove all output files.`))return;
-  try{
-    const r=await fetch(API+'/api/outputs/'+encodeURIComponent(ts),{method:'DELETE'});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    S.history=S.history.filter(h=>h.ts!==ts);
-    renderHistory();
-    if(S.currentTs===ts){S.currentTs=null;S.counts={AWS:0,Azure:0,GCP:0,DigitalOcean:0};renderOverview();}
-  }catch(e){alert('Error deleting scan: '+e.message)}
-}
+    async function deleteRun(ts) {
+      if (!confirm(`Delete scan ${ts}?\nThis will permanently remove all output files.`)) return;
+      try {
+        const r = await fetch(API + '/api/outputs/' + encodeURIComponent(ts), { method: 'DELETE' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        S.history = S.history.filter(h => h.ts !== ts);
+        renderHistory();
+        if (S.currentTs === ts) { S.currentTs = null; S.counts = { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0 }; renderOverview(); }
+      } catch (e) { alert('Error deleting scan: ' + e.message) }
+    }
 
-async function refreshSchedules(){
-  try{
-    const d=await apiFetch('/api/schedules');
-    S.schedules=d.schedules||[];
-    const noAps=document.getElementById('sched-no-aps');
-    if(noAps)noAps.style.display=d.scheduler_available===false?'':'none';
-    const addBtn=document.getElementById('sched-add-btn');
-    if(addBtn)addBtn.disabled=d.scheduler_available===false;
-    renderSchedules();
-  }catch(e){console.warn('schedules:',e)}
-}
+    async function refreshSchedules() {
+      try {
+        const d = await apiFetch('/api/schedules');
+        S.schedules = d.schedules || [];
+        const noAps = document.getElementById('sched-no-aps');
+        if (noAps) noAps.style.display = d.scheduler_available === false ? '' : 'none';
+        const addBtn = document.getElementById('sched-add-btn');
+        if (addBtn) addBtn.disabled = d.scheduler_available === false;
+        renderSchedules();
+      } catch (e) { console.warn('schedules:', e) }
+    }
 
-function renderSchedules(){
-  const list=document.getElementById('sched-list');
-  if(!list)return;
-  document.getElementById('sched-count').textContent=`${S.schedules.length} schedule${S.schedules.length!==1?'s':''}`;
-  document.getElementById('nb-sched').textContent=S.schedules.length;
-  if(!S.schedules.length){list.innerHTML='<div class="empty"><span class="empty-icon">⏰</span>No schedules yet</div>';return}
-  list.innerHTML=S.schedules.map(s=>{
-    const enabled=s.enabled!==false;
-    const lastRun=s.last_run?new Date(s.last_run).toLocaleString():'—';
-    const nextRun=s.next_run?new Date(s.next_run).toLocaleString():'—';
-    const kwPreview=(s.keywords||'').split('\n').filter(Boolean).join(', ');
-    return`<div style="border-bottom:1px solid var(--edge);padding:11px 0">
+    function renderSchedules() {
+      const list = document.getElementById('sched-list');
+      if (!list) return;
+      document.getElementById('sched-count').textContent = `${S.schedules.length} schedule${S.schedules.length !== 1 ? 's' : ''}`;
+      document.getElementById('nb-sched').textContent = S.schedules.length;
+      if (!S.schedules.length) { list.innerHTML = '<div class="empty"><span class="empty-icon">⏰</span>No schedules yet</div>'; return }
+      list.innerHTML = S.schedules.map(s => {
+        const enabled = s.enabled !== false;
+        const lastRun = s.last_run ? new Date(s.last_run).toLocaleString() : '—';
+        const nextRun = s.next_run ? new Date(s.next_run).toLocaleString() : '—';
+        const kwPreview = (s.keywords || '').split('\n').filter(Boolean).join(', ');
+        return `<div style="border-bottom:1px solid var(--edge);padding:11px 0">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px">
         <div style="flex:1;font-weight:700;font-size:.8rem">${esc(s.name)}</div>
-        <span class="tag ${enabled?'tag-ok':'tag-err'}">${enabled?'enabled':'paused'}</span>
-        <button class="btn btn-ghost btn-sm" onclick="toggleSchedule('${esc(s.id)}')">${enabled?'Pause':'Resume'}</button>
+        <span class="tag ${enabled ? 'tag-ok' : 'tag-err'}">${enabled ? 'enabled' : 'paused'}</span>
+        <button class="btn btn-ghost btn-sm" onclick="toggleSchedule('${esc(s.id)}')">${enabled ? 'Pause' : 'Resume'}</button>
         <button class="btn btn-danger btn-sm" onclick="deleteSchedule('${esc(s.id)}')">✕</button>
       </div>
       <div style="font-family:var(--mono);font-size:.62rem;color:var(--ink3);margin-bottom:3px">Every ${s.interval_hours}h · Last: ${esc(lastRun)} · Next: ${esc(nextRun)}</div>
       <div style="font-family:var(--mono);font-size:.6rem;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Keywords: ${esc(kwPreview)}</div>
     </div>`;
-  }).join('');
-}
-
-async function createSchedule(){
-  const name=document.getElementById('sched-name').value.trim()||'Scheduled Scan';
-  const keywords=document.getElementById('sched-keywords').value.trim();
-  const intervalHours=parseInt(document.getElementById('sched-interval').value)||24;
-  const apiKey=document.getElementById('sched-api-key').value.trim();
-  const runNow=document.getElementById('sched-run-now').checked;
-  if(!keywords){alert('Keywords required');return}
-  const btn=document.getElementById('sched-add-btn');btn.disabled=true;
-  try{
-    await apiFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,keywords,interval_hours:intervalHours,api_key:apiKey})});
-    document.getElementById('sched-name').value='';
-    document.getElementById('sched-keywords').value='';
-    document.getElementById('sched-interval').value='24';
-    document.getElementById('sched-api-key').value='';
-    document.getElementById('sched-run-now').checked=false;
-    await refreshSchedules();
-    if(runNow){
-      // Populate scan config and kick off a scan immediately
-      const ki=document.getElementById('cfg-api-key');
-      const kw=document.getElementById('cfg-keywords');
-      if(ki&&apiKey)ki.value=apiKey;
-      if(kw)kw.value=keywords;
-      nav('scan');
-      startScan();
+      }).join('');
     }
-  }catch(e){alert('Error: '+e.message);btn.disabled=false}
-  btn.disabled=false;
-}
 
-async function deleteSchedule(sid){
-  if(!confirm('Delete this schedule?'))return;
-  try{
-    const r=await fetch(API+'/api/schedules/'+encodeURIComponent(sid),{method:'DELETE'});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    await refreshSchedules();
-  }catch(e){alert('Error: '+e.message)}
-}
+    async function createSchedule() {
+      const name = document.getElementById('sched-name').value.trim() || 'Scheduled Scan';
+      const keywords = document.getElementById('sched-keywords').value.trim();
+      const intervalHours = parseInt(document.getElementById('sched-interval').value) || 24;
+      const apiKey = document.getElementById('sched-api-key').value.trim();
+      const runNow = document.getElementById('sched-run-now').checked;
+      if (!keywords) { alert('Keywords required'); return }
+      const btn = document.getElementById('sched-add-btn'); btn.disabled = true;
+      try {
+        await apiFetch('/api/schedules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, keywords, interval_hours: intervalHours, api_key: apiKey }) });
+        document.getElementById('sched-name').value = '';
+        document.getElementById('sched-keywords').value = '';
+        document.getElementById('sched-interval').value = '24';
+        document.getElementById('sched-api-key').value = '';
+        document.getElementById('sched-run-now').checked = false;
+        await refreshSchedules();
+        if (runNow) {
+          // Populate scan config and kick off a scan immediately
+          const ki = document.getElementById('cfg-api-key');
+          const kw = document.getElementById('cfg-keywords');
+          if (ki && apiKey) ki.value = apiKey;
+          if (kw) kw.value = keywords;
+          nav('scan');
+          startScan();
+        }
+      } catch (e) { alert('Error: ' + e.message); btn.disabled = false }
+      btn.disabled = false;
+    }
 
-async function toggleSchedule(sid){
-  try{await apiFetch('/api/schedules/'+encodeURIComponent(sid)+'/toggle',{method:'POST'});await refreshSchedules()}
-  catch(e){alert('Error: '+e.message)}
-}
+    async function deleteSchedule(sid) {
+      if (!confirm('Delete this schedule?')) return;
+      try {
+        const r = await fetch(API + '/api/schedules/' + encodeURIComponent(sid), { method: 'DELETE' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        await refreshSchedules();
+      } catch (e) { alert('Error: ' + e.message) }
+    }
 
-document.addEventListener('DOMContentLoaded',async()=>{
-  _applyTheme(localStorage.getItem('cp-theme')||'dark');  // sync button labels
-  await loadConfig();
-  await loadLatestRun();
-  await refreshHistory();
-  await refreshSchedules();
-  pollBackend();
-});
-</script>
+    async function toggleSchedule(sid) {
+      try { await apiFetch('/api/schedules/' + encodeURIComponent(sid) + '/toggle', { method: 'POST' }); await refreshSchedules() }
+      catch (e) { alert('Error: ' + e.message) }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      _applyTheme(localStorage.getItem('cp-theme') || 'dark');  // sync button labels
+      await loadConfig();
+      await loadLatestRun();
+      await refreshHistory();
+      await refreshSchedules();
+      pollBackend();
+    });
+  </script>
 </body>
+
 </html>
