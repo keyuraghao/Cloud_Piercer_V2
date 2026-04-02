@@ -1,0 +1,36 @@
+services:
+  cloud-pearser:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      # Required – override via .env file or shell environment
+      - GRAYHATWARFARE_API_KEY=${GRAYHATWARFARE_API_KEY}
+      # Strong secret for dashboard auth – generate with:
+      #   python -c "import secrets; print(secrets.token_hex(32))"
+      - DASHBOARD_SECRET=${DASHBOARD_SECRET}
+      # CORS – set to your frontend origin(s) in production
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=${LOG_FILE:-}
+      # AI keys (optional)
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      # Persist scan outputs across container restarts
+      - cloud_outputs:/app/Outputs
+      # Persist keywords and schedules
+      - cloud_data:/app/keywords.txt
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  cloud_outputs:
+  cloud_data:

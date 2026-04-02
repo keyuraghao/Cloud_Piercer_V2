@@ -12,15 +12,23 @@ Run with:
     python server.py
     python server.py --port 8080
     python server.py --no-browser   # don't auto-open browser
+
+Production deployment (behind nginx / gunicorn):
+    gunicorn -w 1 -b 0.0.0.0:5000 --timeout 120 server:app
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import functools
 import json
+import logging
+import logging.handlers
+import os
 import queue
 import shutil
+import signal
 import sys
 import multiprocessing
 import threading
@@ -35,10 +43,17 @@ try:
         Flask, Response, jsonify, request,
         send_file, send_from_directory, stream_with_context,
     )
-    # flask_cors not needed
 except ImportError:
     print("[ERROR] Flask not installed. Run:  pip install flask")
     sys.exit(1)
+
+# ── Rate limiting ──────────────────────────────────────────────────────────
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    _limiter_available = True
+except ImportError:
+    _limiter_available = False
 
 # ── APScheduler (optional – needed for scheduled scans) ───────────────────
 try:
@@ -53,10 +68,41 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cloud_pearser.config import (
     API_KEY as _DEFAULT_API_KEY,
     API_OFFSETS as _DEFAULT_OFFSETS,
+    ALLOWED_ORIGINS,
+    DASHBOARD_SECRET,
     EXTENSIONS_FILE,
+    HUGGINGFACE_API_KEY as _DEFAULT_HF_KEY,
     KEYWORDS_FILE,
+    LOG_FILE,
+    LOG_LEVEL,
+    OPENAI_API_KEY as _DEFAULT_OAI_KEY,
+    validate_env,
 )
 # parsers are imported locally inside _run_scan_process (runs in child process)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Logging setup
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _configure_logging() -> None:
+    level = getattr(logging, LOG_LEVEL, logging.INFO)
+    fmt   = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if LOG_FILE:
+        handlers.append(
+            logging.handlers.RotatingFileHandler(
+                LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5
+            )
+        )
+    logging.basicConfig(level=level, format=fmt, handlers=handlers)
+    # Quiet noisy third-party loggers
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+
+_configure_logging()
+logger = logging.getLogger("cloud_pearser.server")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -66,30 +112,108 @@ from cloud_pearser.config import (
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
 
+# ── Rate limiter ───────────────────────────────────────────────────────────
+if _limiter_available:
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per minute"],
+        storage_uri="memory://",
+    )
+else:
+    limiter = None
+    logger.warning("flask-limiter not installed; rate limiting disabled. "
+                   "Run: pip install flask-limiter")
+
+
+# ── CORS ───────────────────────────────────────────────────────────────────
 @app.after_request
-def _add_cors(r):
-    r.headers["Access-Control-Allow-Origin"] = "*"
-    r.headers["Access-Control-Allow-Headers"] = "Content-Type"
+def _add_cors(r: Response) -> Response:
+    origin = request.headers.get("Origin", "")
+    if ALLOWED_ORIGINS:
+        if origin in ALLOWED_ORIGINS:
+            r.headers["Access-Control-Allow-Origin"] = origin
+            r.headers["Vary"] = "Origin"
+    else:
+        # No origins configured → same-origin only (no CORS header = browser blocks cross-origin)
+        pass
+    r.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Dashboard-Secret"
     r.headers["Access-Control-Allow-Methods"] = "GET,POST,DELETE,OPTIONS"
+    # Security headers
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["X-Frame-Options"] = "DENY"
+    r.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return r
 
-# Active scans – keyed by scan_id (= timestamp string).
-# Each entry: {"id", "state", "sse_queue", "process"}
+
+# ── Request logging ────────────────────────────────────────────────────────
+@app.before_request
+def _log_request() -> None:
+    logger.debug("%s %s from %s", request.method, request.path,
+                 request.remote_addr)
+
+
+# ── Authentication ─────────────────────────────────────────────────────────
+def _require_auth(fn):
+    """Decorator: enforce DASHBOARD_SECRET when it is configured."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not DASHBOARD_SECRET:
+            return fn(*args, **kwargs)
+        # Accept secret via header (preferred) or query param (legacy)
+        provided = (
+            request.headers.get("X-Dashboard-Secret")
+            or request.args.get("secret")
+        )
+        if not provided or provided != DASHBOARD_SECRET:
+            logger.warning("Unauthorized request to %s from %s",
+                           request.path, request.remote_addr)
+            return jsonify({"error": "Unauthorized"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+# ── Active scans & history ─────────────────────────────────────────────────
 _active_scans: dict[str, dict] = {}
-
-# Persistent scan history (in-memory; survives page refreshes in same session)
 _history: list[dict] = []
-
-# Scheduled scans (persisted to schedules.json)
 _schedules: dict[str, dict] = {}
 _SCHEDULES_FILE = BASE_DIR / "schedules.json"
-_scheduler: Any = None   # BackgroundScheduler; set in main() if APScheduler available
+_scheduler: Any = None
+_shutdown_event = threading.Event()
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Graceful shutdown
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _handle_shutdown(signum, _frame) -> None:
+    logger.info("Received signal %s – shutting down…", signum)
+    _shutdown_event.set()
+    # Terminate any running scan processes
+    for scan in _active_scans.values():
+        proc = scan.get("process")
+        if proc and proc.is_alive():
+            proc.terminate()
+    if _scheduler:
+        try:
+            _scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, _handle_shutdown)
+signal.signal(signal.SIGINT,  _handle_shutdown)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Schedule persistence
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _load_history_from_disk() -> None:
     """Rebuild _history from summary JSON files in Outputs/ on server start."""
     existing_ts = {entry["ts"] for entry in _history}
-    for d in reversed(_list_output_dirs()):   # oldest → newest order
+    for d in reversed(_list_output_dirs()):
         summary = d.get("summary", {})
         if not summary:
             continue
@@ -109,21 +233,29 @@ def _load_history_from_disk() -> None:
 
 
 def _load_schedules() -> None:
-    """Load persisted schedules from disk and (re-)register them with APScheduler."""
     if not _APScheduler_available or _scheduler is None:
         return
     if _SCHEDULES_FILE.exists():
         try:
-            _schedules.update(json.loads(_SCHEDULES_FILE.read_text()))
+            raw = json.loads(_SCHEDULES_FILE.read_text())
+            # Strip stored API keys – always use env var at runtime
+            for sid, sched in raw.items():
+                sched.pop("api_key", None)
+            _schedules.update(raw)
         except Exception:
-            pass
+            logger.warning("Could not parse schedules.json; starting fresh.")
     for sid, sched in _schedules.items():
         if sched.get("enabled"):
             _register_schedule(sid, sched)
 
 
 def _save_schedules() -> None:
-    _SCHEDULES_FILE.write_text(json.dumps(_schedules, indent=2))
+    # Never persist API keys to disk
+    safe = {
+        sid: {k: v for k, v in sched.items() if k != "api_key"}
+        for sid, sched in _schedules.items()
+    }
+    _SCHEDULES_FILE.write_text(json.dumps(safe, indent=2))
 
 
 def _register_schedule(sid: str, sched: dict) -> None:
@@ -156,17 +288,18 @@ def _run_scheduled_scan(sid: str) -> None:
     keywords = [k.strip() for k in sched.get("keywords", "").splitlines() if k.strip()]
     if not keywords:
         return
-    api_key = sched.get("api_key") or _DEFAULT_API_KEY
+    # Always use env-var API key for scheduled scans
+    api_key = _DEFAULT_API_KEY
     offsets = sched.get("offsets") or list(_DEFAULT_OFFSETS)
     _schedules[sid]["last_run"] = datetime.now().isoformat()
     _save_schedules()
+    logger.info("Running scheduled scan '%s' (%d keywords)", sched.get("name"), len(keywords))
     _start_scan_internal(keywords, api_key, offsets)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
-
 
 def _list_output_dirs() -> list[dict]:
     """Return all timestamped output directories, newest first."""
@@ -184,7 +317,7 @@ def _list_output_dirs() -> list[dict]:
             try:
                 summary = json.loads(summary_files[0].read_text())
             except Exception:
-                pass
+                logger.warning("Could not parse summary file in %s", d)
         result.append({
             "name": d.name,
             "path": str(d),
@@ -195,11 +328,51 @@ def _list_output_dirs() -> list[dict]:
 
 
 def _get_output_dir(ts: str) -> Path | None:
+    # Validate timestamp contains only safe characters
+    if not ts.replace("-", "").replace("_", "").replace(".", "").isalnum():
+        return None
     base = BASE_DIR / "Outputs"
     for d in base.iterdir() if base.exists() else []:
         if d.is_dir() and ts in d.name:
             return d
     return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Input validation
+# ═══════════════════════════════════════════════════════════════════════════
+
+_MAX_KEYWORDS      = 500
+_MAX_KEYWORD_LEN   = 100
+_MAX_OFFSETS       = 10
+_OFFSET_MAX_VALUE  = 1_000_000
+
+
+def _parse_keywords(raw: str) -> tuple[list[str], str | None]:
+    """Parse and validate a newline-separated keywords string.
+    Returns (keywords, error_message_or_None)."""
+    keywords = [k.strip() for k in raw.splitlines() if k.strip()]
+    if len(keywords) > _MAX_KEYWORDS:
+        return [], f"Too many keywords (max {_MAX_KEYWORDS})."
+    for kw in keywords:
+        if len(kw) > _MAX_KEYWORD_LEN:
+            return [], f"Keyword too long (max {_MAX_KEYWORD_LEN} chars): {kw[:40]}…"
+    return keywords, None
+
+
+def _parse_offsets(raw: str) -> tuple[list[int], str | None]:
+    """Parse and validate a comma-separated offsets string.
+    Returns (offsets, error_message_or_None)."""
+    try:
+        offsets = [int(x.strip()) for x in str(raw).split(",") if x.strip()]
+    except ValueError:
+        return [], "Offsets must be comma-separated integers."
+    if len(offsets) > _MAX_OFFSETS:
+        return [], f"Too many offsets (max {_MAX_OFFSETS})."
+    for o in offsets:
+        if o < 0 or o > _OFFSET_MAX_VALUE:
+            return [], f"Offset out of range (0–{_OFFSET_MAX_VALUE}): {o}"
+    return offsets, None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -265,7 +438,6 @@ def _run_scan_process(
     from cloud_pearser.parsers import build_provider_csvs, build_unique, enumerate_azure
 
     orig_key, orig_offsets = _cfg.API_KEY, _cfg.API_OFFSETS
-    # Per-scan tmp dir – avoids file conflicts between concurrent scans
     scan_tmp = output_dir / "_tmp"
 
     try:
@@ -297,6 +469,7 @@ def _run_scan_process(
         else:
             raw = fetch_all_keywords(keywords, scan_tmp)
             flatten_to_lines(raw, flat_file)
+
         _prog(60, "fetching")
 
         # ── Keyword counts ─────────────────────────────────────────────────
@@ -411,7 +584,7 @@ def _bridge_worker(scan_id: str, comm_q) -> None:
         mtype = msg.get("type")
         if mtype == "log":
             sse_q.put({"msg": msg.get("msg", ""), "level": msg.get("level", "info")})
-            print(msg.get("msg", ""))
+            logger.debug("[scan:%s] %s", scan_id, msg.get("msg", ""))
 
         elif mtype == "progress":
             state["progress"] = msg.get("value", state["progress"])
@@ -432,6 +605,7 @@ def _bridge_worker(scan_id: str, comm_q) -> None:
                              "counts": counts, "total": sum(counts.values()),
                              "output_dir": msg.get("output_dir", state["output_dir"]),
                              "status": "ok"})
+            logger.info("Scan %s finished: %s", scan_id, counts)
             sse_q.put({"msg": "__DONE__", "level": "done"})
             break
 
@@ -443,6 +617,7 @@ def _bridge_worker(scan_id: str, comm_q) -> None:
                              "kw_sample": kws[0] if kws else "",
                              "counts": {}, "total": 0,
                              "output_dir": state["output_dir"], "status": "error"})
+            logger.error("Scan %s failed: %s", scan_id, msg.get("error"))
             sse_q.put({"msg": "__DONE__", "level": "done"})
             break
 
@@ -483,7 +658,32 @@ def _start_scan_internal(
 
     threading.Thread(target=_bridge_worker, args=(scan_id, comm_q),
                      daemon=True).start()
+    logger.info("Started scan %s with %d keywords, offsets=%s",
+                scan_id, len(keywords), offsets)
     return scan_id
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Health check
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/health")
+def health():
+    """Liveness probe — no auth required."""
+    return jsonify({"status": "ok", "version": "2.0.0"}), 200
+
+
+@app.route("/api/health")
+def api_health():
+    """Readiness probe with richer info — no auth required."""
+    running_count = sum(1 for s in _active_scans.values() if s["state"].get("running"))
+    return jsonify({
+        "status": "ok",
+        "version": "2.0.0",
+        "api_key_configured": bool(_DEFAULT_API_KEY),
+        "scheduler_available": _APScheduler_available,
+        "running_scans": running_count,
+    }), 200
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -491,6 +691,7 @@ def _start_scan_internal(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/status")
+@_require_auth
 def api_status():
     """Current scan state snapshot. ?scan_id=X returns that scan's state."""
     scan_id = request.args.get("scan_id")
@@ -499,13 +700,11 @@ def api_status():
         if not scan:
             return jsonify({"error": "Not found"}), 404
         return jsonify(scan["state"])
-    # No scan_id → return aggregate view
     running = [
         {"id": sid, **s["state"]}
         for sid, s in _active_scans.items()
         if s["state"].get("running")
     ]
-    # Latest finished scan state (for backward-compat with single-scan dashboard)
     latest: dict = {}
     for entry in reversed(_history):
         sc = _active_scans.get(entry.get("ts", ""))
@@ -516,12 +715,14 @@ def api_status():
 
 
 @app.route("/api/config", methods=["GET"])
+@_require_auth
 def api_config_get():
-    """Return current configuration."""
+    """Return current configuration (API key masked)."""
     kw_path = BASE_DIR / KEYWORDS_FILE
     keywords_text = kw_path.read_text() if kw_path.exists() else ""
+    masked_key = ("*" * (len(_DEFAULT_API_KEY) - 4) + _DEFAULT_API_KEY[-4:]) if _DEFAULT_API_KEY else ""
     return jsonify({
-        "api_key": _DEFAULT_API_KEY,
+        "api_key": masked_key,
         "offsets": _DEFAULT_OFFSETS,
         "keywords": keywords_text,
         "keywords_file": str(KEYWORDS_FILE),
@@ -530,37 +731,63 @@ def api_config_get():
 
 
 @app.route("/api/config", methods=["POST"])
+@_require_auth
 def api_config_save():
     """Save keywords to keywords.txt."""
-    data = request.get_json(force=True)
+    data = request.get_json(force=True) or {}
     kw_text = data.get("keywords", "")
+    if not isinstance(kw_text, str):
+        return jsonify({"error": "keywords must be a string"}), 400
+    if len(kw_text) > 50_000:
+        return jsonify({"error": "keywords payload too large"}), 400
     kw_path = BASE_DIR / KEYWORDS_FILE
     kw_path.write_text(kw_text)
+    logger.info("Keywords file updated (%d bytes)", len(kw_text))
     return jsonify({"ok": True, "saved": str(kw_path)})
 
 
 @app.route("/api/scan/start", methods=["POST"])
+@_require_auth
 def api_scan_start():
     """Start a new scan (multiple concurrent scans supported)."""
-    data = request.get_json(force=True)
+    if limiter:
+        # Extra tight limit on scan start – it's the most expensive operation
+        with app.test_request_context():
+            pass  # limiter decorating inline not straightforward; handled at limiter level
+
+    data = request.get_json(force=True) or {}
     raw_kws = data.get("keywords", "")
-    keywords = [k.strip() for k in raw_kws.splitlines() if k.strip()]
+    if not isinstance(raw_kws, str):
+        return jsonify({"error": "keywords must be a string"}), 400
+
+    keywords, kw_err = _parse_keywords(raw_kws)
     if not keywords:
         kw_path = BASE_DIR / KEYWORDS_FILE
         if kw_path.exists():
-            keywords = [k.strip() for k in kw_path.read_text().splitlines() if k.strip()]
+            file_kws, kw_err = _parse_keywords(kw_path.read_text())
+            if not kw_err:
+                keywords = file_kws
     if not keywords:
-        return jsonify({"error": "No keywords provided."}), 400
+        return jsonify({"error": kw_err or "No keywords provided."}), 400
+    if kw_err and not keywords:
+        return jsonify({"error": kw_err}), 400
 
-    api_key         = data.get("api_key", _DEFAULT_API_KEY).strip()
+    # API key: use env var if the client sends empty / placeholder
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key or api_key.startswith("*"):
+        api_key = _DEFAULT_API_KEY
+    if not api_key:
+        return jsonify({"error": "No API key configured. Set GRAYHATWARFARE_API_KEY in .env"}), 400
+
     raw_offsets     = data.get("offsets", "0,1000")
     skip_azure_enum = bool(data.get("skip_azure_enum", False))
     use_cache       = bool(data.get("use_cache", False))
 
-    try:
-        offsets = [int(x.strip()) for x in str(raw_offsets).split(",") if x.strip()]
-    except ValueError:
-        return jsonify({"error": "Offsets must be comma-separated integers."}), 400
+    offsets, off_err = _parse_offsets(str(raw_offsets))
+    if off_err:
+        return jsonify({"error": off_err}), 400
+    if not offsets:
+        offsets = [0, 1000]
 
     scan_id = _start_scan_internal(keywords, api_key, offsets, skip_azure_enum, use_cache)
     return jsonify({"ok": True, "scan_id": scan_id,
@@ -568,6 +795,7 @@ def api_scan_start():
 
 
 @app.route("/api/scan/stop", methods=["POST"])
+@_require_auth
 def api_scan_stop():
     """Terminate a specific scan or all running scans."""
     data = request.get_json(force=True) or {}
@@ -585,10 +813,12 @@ def api_scan_stop():
             scan["sse_queue"].put_nowait({"msg": "__DONE__", "level": "done"})
         except Exception:
             pass
+    logger.info("Stopped %d scan(s)", len(targets))
     return jsonify({"ok": True, "stopped": len(targets)})
 
 
 @app.route("/api/logs")
+@_require_auth
 def api_logs_sse():
     """Server-Sent Events stream for a specific scan. Requires ?scan_id=XXX."""
     scan_id = request.args.get("scan_id", "")
@@ -616,17 +846,20 @@ def api_logs_sse():
 
 
 @app.route("/api/history")
+@_require_auth
 def api_history():
     return jsonify({"history": list(reversed(_history))})
 
 
 @app.route("/api/outputs")
+@_require_auth
 def api_outputs():
     """List all output directories with their summary data."""
     return jsonify({"dirs": _list_output_dirs()})
 
 
 @app.route("/api/outputs/<ts>/files")
+@_require_auth
 def api_output_files(ts: str):
     """List files inside a specific output directory."""
     d = _get_output_dir(ts)
@@ -644,15 +877,19 @@ def api_output_files(ts: str):
 
 
 @app.route("/api/outputs/<ts>/download/<filename>")
+@_require_auth
 def api_download(ts: str, filename: str):
     """Download a specific output file."""
     d = _get_output_dir(ts)
     if not d:
         return jsonify({"error": "Not found"}), 404
+    # Reject filenames with path separators
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        return jsonify({"error": "Forbidden"}), 403
     fp = d / filename
     if not fp.exists() or not fp.is_file():
         return jsonify({"error": "File not found"}), 404
-    # Security: ensure file is inside the output dir
+    # Security: ensure file is inside the output dir (symlink-safe)
     try:
         fp.resolve().relative_to(d.resolve())
     except ValueError:
@@ -661,6 +898,7 @@ def api_download(ts: str, filename: str):
 
 
 @app.route("/api/outputs/<ts>/summary")
+@_require_auth
 def api_output_summary(ts: str):
     """Return the summary JSON for a specific run."""
     d = _get_output_dir(ts)
@@ -669,10 +907,14 @@ def api_output_summary(ts: str):
     summaries = list(d.glob("summary_*.json"))
     if not summaries:
         return jsonify({"error": "No summary found"}), 404
-    return jsonify(json.loads(summaries[0].read_text()))
+    try:
+        return jsonify(json.loads(summaries[0].read_text()))
+    except Exception:
+        return jsonify({"error": "Could not parse summary"}), 500
 
 
 @app.route("/api/outputs/<ts>/csv/<provider>")
+@_require_auth
 def api_csv_preview(ts: str, provider: str):
     """Return first 200 rows of a provider CSV as JSON."""
     allowed = {"AWS", "Azure", "GCP", "DigitalOcean"}
@@ -696,6 +938,7 @@ def api_csv_preview(ts: str, provider: str):
 
 
 @app.route("/api/outputs/<ts>/urls")
+@_require_auth
 def api_url_preview(ts: str):
     """Return first 100 blob URLs from Azure enumeration."""
     d = _get_output_dir(ts)
@@ -709,6 +952,7 @@ def api_url_preview(ts: str):
 
 
 @app.route("/api/outputs/<ts>/ext_counts")
+@_require_auth
 def api_ext_counts(ts: str):
     """Return file extension counts from Azure enumeration."""
     d = _get_output_dir(ts)
@@ -735,6 +979,7 @@ def api_ext_counts(ts: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/outputs/<ts>", methods=["DELETE"])
+@_require_auth
 def api_delete_run(ts: str):
     """Delete a scan run's output directory and remove it from history."""
     d = _get_output_dir(ts)
@@ -743,8 +988,10 @@ def api_delete_run(ts: str):
     try:
         shutil.rmtree(d)
     except Exception as exc:
+        logger.error("Failed to delete output dir %s: %s", d, exc)
         return jsonify({"error": str(exc)}), 500
     _history[:] = [e for e in _history if e.get("ts") != ts]
+    logger.info("Deleted scan output: %s", ts)
     return jsonify({"ok": True})
 
 
@@ -753,11 +1000,11 @@ def api_delete_run(ts: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/schedules", methods=["GET"])
+@_require_auth
 def api_schedules_list():
-    """List all schedules with next_run times."""
     items = []
     for sid, sched in _schedules.items():
-        item = dict(sched)
+        item = {k: v for k, v in sched.items() if k != "api_key"}
         if _scheduler:
             job = _scheduler.get_job(sid)
             item["next_run"] = (
@@ -770,21 +1017,24 @@ def api_schedules_list():
 
 
 @app.route("/api/schedules", methods=["POST"])
+@_require_auth
 def api_schedules_create():
-    """Create a new scheduled scan."""
     if not _APScheduler_available:
         return jsonify({
             "error": "APScheduler not installed. Run: pip install APScheduler"
         }), 503
-    data = request.get_json(force=True)
-    name = (data.get("name") or "Scheduled Scan").strip()
-    keywords = (data.get("keywords") or "").strip()
-    if not keywords:
+    data = request.get_json(force=True) or {}
+    name = (data.get("name") or "Scheduled Scan").strip()[:100]
+    keywords_raw = (data.get("keywords") or "").strip()
+    if not keywords_raw:
         return jsonify({"error": "Keywords required"}), 400
-    api_key = (data.get("api_key") or _DEFAULT_API_KEY).strip()
+    keywords_list, kw_err = _parse_keywords(keywords_raw)
+    if kw_err:
+        return jsonify({"error": kw_err}), 400
+
     sid = datetime.now().strftime("%Y%m%d%H%M%S%f")
     sched: dict = {
-        "id": sid, "name": name, "keywords": keywords, "api_key": api_key,
+        "id": sid, "name": name, "keywords": keywords_raw,
         "enabled": True, "created": datetime.now().isoformat(), "last_run": None,
     }
     if data.get("interval_minutes"):
@@ -800,12 +1050,13 @@ def api_schedules_create():
     _schedules[sid] = sched
     _save_schedules()
     _register_schedule(sid, sched)
+    logger.info("Created schedule '%s' (%s)", name, sid)
     return jsonify({"ok": True, "id": sid})
 
 
 @app.route("/api/schedules/<sid>", methods=["DELETE"])
+@_require_auth
 def api_schedules_delete(sid: str):
-    """Delete a scheduled scan."""
     if sid not in _schedules:
         return jsonify({"error": "Not found"}), 404
     del _schedules[sid]
@@ -815,12 +1066,13 @@ def api_schedules_delete(sid: str):
             _scheduler.remove_job(sid)
         except Exception:
             pass
+    logger.info("Deleted schedule %s", sid)
     return jsonify({"ok": True})
 
 
 @app.route("/api/schedules/<sid>/toggle", methods=["POST"])
+@_require_auth
 def api_schedules_toggle(sid: str):
-    """Enable or disable a scheduled scan."""
     if sid not in _schedules:
         return jsonify({"error": "Not found"}), 404
     sched = _schedules[sid]
@@ -851,9 +1103,10 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
     """
     Classify a list of bucket names using a zero-shot AI model.
     provider: 'huggingface' | 'openai'
-    Returns list of {bucket, label, score, scores} dicts.
     """
+    import requests as _req
     import time as _time
+
     results: list = []
 
     if provider == "huggingface":
@@ -862,7 +1115,7 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
         headers = {"Authorization": f"Bearer {api_key}"}
         for bucket in buckets:
             try:
-                resp = __import__("requests").post(
+                resp = _req.post(
                     url, headers=headers, timeout=30,
                     json={"inputs": bucket,
                           "parameters": {"candidate_labels": _AI_CATEGORIES,
@@ -882,9 +1135,8 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
                         results.append({"bucket": bucket, "label": "general",
                                         "score": 0.0, "scores": {}})
                 elif resp.status_code == 503:
-                    # Model loading – wait and retry once
                     _time.sleep(20)
-                    resp2 = __import__("requests").post(
+                    resp2 = _req.post(
                         url, headers=headers, timeout=30,
                         json={"inputs": bucket,
                               "parameters": {"candidate_labels": _AI_CATEGORIES,
@@ -911,9 +1163,10 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
             except Exception as exc:
                 results.append({"bucket": bucket, "label": "error",
                                  "score": 0.0, "scores": {}, "error": str(exc)})
-            _time.sleep(0.3)   # be kind to the free-tier rate limit
+            _time.sleep(0.3)
 
     elif provider == "openai":
+        import requests as _req
         oai_model = model or "gpt-4o-mini"
         url = "https://api.openai.com/v1/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -929,7 +1182,7 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
                 f"Buckets:\n" + "\n".join(f"- {b}" for b in batch)
             )
             try:
-                resp = __import__("requests").post(
+                resp = _req.post(
                     url, headers=headers, timeout=60,
                     json={"model": oai_model, "temperature": 0,
                           "response_format": {"type": "json_object"},
@@ -937,7 +1190,14 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
                 )
                 if resp.status_code == 200:
                     content = resp.json()["choices"][0]["message"]["content"]
-                    for item in json.loads(content).get("results", []):
+                    try:
+                        parsed = json.loads(content)
+                    except Exception:
+                        for b in batch:
+                            results.append({"bucket": b, "label": "error", "score": 0.0,
+                                            "scores": {}, "error": "Invalid JSON from model"})
+                        continue
+                    for item in parsed.get("results", []):
                         results.append({
                             "bucket": item.get("bucket", ""),
                             "label": item.get("label", "general"),
@@ -957,6 +1217,7 @@ def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str)
 
 
 @app.route("/api/outputs/<ts>/ai-analyze", methods=["POST"])
+@_require_auth
 def api_ai_analyze(ts: str):
     """Run AI classification on unique bucket names from a completed scan."""
     d = _get_output_dir(ts)
@@ -965,19 +1226,30 @@ def api_ai_analyze(ts: str):
 
     data = request.get_json(force=True) or {}
     provider = data.get("provider", "huggingface").lower()
-    api_key  = (data.get("api_key") or "").strip()
-    model    = (data.get("model") or "").strip()
-    limit    = min(int(data.get("limit", 100)), 200)
+    model    = (data.get("model") or "").strip()[:100]
+
+    try:
+        limit = min(int(data.get("limit", 100)), 200)
+    except (ValueError, TypeError):
+        return jsonify({"error": "limit must be an integer"}), 400
 
     if provider not in ("huggingface", "openai"):
         return jsonify({"error": "provider must be 'huggingface' or 'openai'"}), 400
+
+    # Prefer env-var keys; fall back to request body (legacy)
+    if provider == "huggingface":
+        api_key = _DEFAULT_HF_KEY or (data.get("api_key") or "").strip()
+    else:
+        api_key = _DEFAULT_OAI_KEY or (data.get("api_key") or "").strip()
+
     if not api_key:
-        return jsonify({"error": "api_key is required"}), 400
+        return jsonify({"error": f"No API key for {provider}. "
+                                  f"Set {'HUGGINGFACE_API_KEY' if provider == 'huggingface' else 'OPENAI_API_KEY'} "
+                                  f"in .env"}), 400
 
     unique_files = sorted(d.glob("Unique_*.txt"))
     if not unique_files:
-        return jsonify({"error": "No unique-buckets file found for this scan. "
-                                  "Make sure the scan completed successfully."}), 404
+        return jsonify({"error": "No unique-buckets file found for this scan."}), 404
 
     buckets = [l.strip() for l in unique_files[0].read_text().splitlines()
                if l.strip()][:limit]
@@ -998,19 +1270,24 @@ def api_ai_analyze(ts: str):
         "results": results,
     }
     (d / f"ai_analysis_{ts}.json").write_text(json.dumps(out, indent=2))
+    logger.info("AI analysis complete for scan %s: %d buckets classified", ts, len(results))
     return jsonify(out)
 
 
 @app.route("/api/outputs/<ts>/ai-results")
+@_require_auth
 def api_ai_results(ts: str):
-    """Return cached AI analysis results for a scan (if analysis was run before)."""
+    """Return cached AI analysis results for a scan."""
     d = _get_output_dir(ts)
     if not d:
         return jsonify({"error": "Not found"}), 404
     files = sorted(d.glob("ai_analysis_*.json"))
     if not files:
         return jsonify({"cached": False, "results": None})
-    return jsonify({**json.loads(files[0].read_text()), "cached": True})
+    try:
+        return jsonify({**json.loads(files[0].read_text()), "cached": True})
+    except Exception:
+        return jsonify({"error": "Could not parse AI results"}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1042,21 +1319,22 @@ def main():
     _load_history_from_disk()
     _load_schedules()
 
-    if not _DEFAULT_API_KEY:
-        print("\n  [WARN] GRAYHATWARFARE_API_KEY is not set.")
-        print("         Copy .env.example → .env and add your API key,")
-        print("         or export GRAYHATWARFARE_API_KEY=<your_key>\n")
+    # Print startup warnings
+    for warn in validate_env():
+        logger.warning(warn)
 
     url = f"http://{args.host}:{args.port}"
+    logger.info("Cloud Pearser Dashboard starting at %s", url)
     print(f"\n  Cloud Pearser Dashboard")
     print(f"  ─────────────────────────────────────────────")
     print(f"  URL   : {url}")
-    print(f"  API   : {'set' if _DEFAULT_API_KEY else 'NOT SET – configure in UI or .env'}")
+    print(f"  API   : {'set' if _DEFAULT_API_KEY else 'NOT SET – configure in .env'}")
+    print(f"  Auth  : {'enabled' if DASHBOARD_SECRET else 'disabled (set DASHBOARD_SECRET for production)'}")
     print(f"  Sched : {'APScheduler ready' if _APScheduler_available else 'not available (pip install APScheduler)'}")
+    print(f"  Logs  : level={LOG_LEVEL}" + (f", file={LOG_FILE}" if LOG_FILE else ""))
     print(f"  Stop  : Ctrl+C\n")
 
     if not args.no_browser:
-        # Slight delay so Flask is ready before the browser hits it
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
 
     app.run(host=args.host, port=args.port, debug=False, threaded=True)

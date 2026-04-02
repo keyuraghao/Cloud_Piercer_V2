@@ -1,4 +1,9 @@
-flask>=3.0.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-APScheduler>=3.10.0,<4
+# Core
+flask==3.1.0
+requests==2.32.3
+python-dotenv==1.0.1
+APScheduler==3.10.4
+
+# Production hardening
+flask-limiter==3.9.0
+gunicorn==23.0.0
