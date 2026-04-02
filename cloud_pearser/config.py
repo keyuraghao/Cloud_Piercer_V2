@@ -3,17 +3,25 @@ config.py  –  Central configuration for Cloud Pearser.
 All tuneable constants live here so nothing is scattered across files.
 """
 
+import os
 from pathlib import Path
+
+# Load .env if present (requires python-dotenv, silently skipped if not installed)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass
 
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
 API_URL     = "https://buckets.grayhatwarfare.com/api/v2/files"
-API_KEY     = "fc247c3bba251126354cab7a0ba4c92a"   # replace with your key
-API_LIMIT   = 1000                                  # results per page
-API_OFFSETS = [0, 1000]                             # pagination start values
-API_SLEEP   = 1.0                                   # seconds between requests
-API_TIMEOUT = 30                                    # seconds per request
+API_KEY     = os.environ.get("GRAYHATWARFARE_API_KEY", "")  # set in .env or environment
+API_LIMIT   = 1000                                          # results per page
+API_OFFSETS = [0, 1000]                                     # pagination start values
+API_SLEEP   = 1.0                                           # seconds between requests
+API_TIMEOUT = 30                                            # seconds per request
 
 # ---------------------------------------------------------------------------
 # Paths

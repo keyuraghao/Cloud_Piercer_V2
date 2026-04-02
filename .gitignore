@@ -1,0 +1,35 @@
+# ── Runtime outputs (can be large, contain scan results) ──────────────────
+Outputs/
+
+# ── Secrets & local config ────────────────────────────────────────────────
+.env
+schedules.json          # contains API keys from scheduled scans
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────
+cloud_p/
+venv/
+.venv/
+env/
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Temp / cache ──────────────────────────────────────────────────────────
+/tmp/Cloud_Outputs/
+*.log

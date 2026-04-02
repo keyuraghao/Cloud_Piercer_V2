@@ -1012,6 +1012,7 @@
         <div class="nav-section">Automation</div>
         <div class="nav-item" onclick="nav('schedules')" data-view="schedules"><span class="ni">⏰</span> Schedules<span
             class="nav-badge" id="nb-sched">0</span></div>
+        <div class="nav-item" onclick="nav('ai')" data-view="ai"><span class="ni">🤖</span> AI Analysis</div>
       </nav>
       <div class="sb-foot">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
@@ -1324,8 +1325,14 @@
               </div>
               <div class="g2" style="margin-bottom:9px">
                 <div class="fg">
-                  <label class="flabel">Interval (hours)</label>
-                  <input class="fi" id="sched-interval" type="number" min="1" value="24" />
+                  <label class="flabel">Interval</label>
+                  <div style="display:flex;gap:6px">
+                    <input class="fi" id="sched-interval" type="number" min="1" value="24" style="flex:1" />
+                    <select class="fi" id="sched-interval-unit" style="width:90px;flex-shrink:0">
+                      <option value="hours">Hours</option>
+                      <option value="minutes">Minutes</option>
+                    </select>
+                  </div>
                 </div>
                 <div class="fg">
                   <label class="flabel">API Key (blank = use default)</label>
@@ -1351,16 +1358,71 @@
           </div>
         </div>
 
+        <!-- AI ANALYSIS -->
+        <div class="view anim" id="view-ai">
+          <div class="slabel">AI Bucket Classification</div>
+          <div class="alert alert-info mt" style="margin-bottom:13px">
+            <span>ℹ</span>
+            <span>Optional feature — classify bucket names by industry/sensitivity using a zero-shot AI model.
+              Supports <strong>Hugging Face</strong> Inference API (free tier) or <strong>OpenAI</strong>.</span>
+          </div>
+          <div class="g2" style="align-items:start">
+            <!-- Config card -->
+            <div class="card">
+              <div class="ch"><div class="ct">Configure</div></div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel">Scan to Analyze</label>
+                <select class="fi" id="ai-scan-select"><option value="">— select a scan —</option></select>
+              </div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel">Provider</label>
+                <select class="fi" id="ai-provider" onchange="onAiProviderChange()">
+                  <option value="huggingface">Hugging Face (free tier)</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel">API Key</label>
+                <input class="fi" id="ai-api-key" type="password" placeholder="hf_… or sk-…" />
+              </div>
+              <div class="fg" style="margin-bottom:9px">
+                <label class="flabel" id="ai-model-label">Model (blank = facebook/bart-large-mnli)</label>
+                <input class="fi" id="ai-model" placeholder="leave blank for default" />
+              </div>
+              <div class="fg" style="margin-bottom:13px">
+                <label class="flabel">Max buckets to classify</label>
+                <input class="fi" id="ai-limit" type="number" min="1" max="200" value="100" />
+              </div>
+              <button class="btn btn-primary" id="ai-run-btn" onclick="runAiAnalysis()" style="width:100%">
+                🤖 Analyze Buckets
+              </button>
+              <div id="ai-status" style="margin-top:9px;font-family:var(--mono);font-size:.65rem;color:var(--ink3);display:none"></div>
+            </div>
+            <!-- Results card -->
+            <div class="card">
+              <div class="ch">
+                <div class="ct">Results</div>
+                <span class="cb" id="ai-result-meta"></span>
+              </div>
+              <div id="ai-category-filter" style="display:none;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
+              <div id="ai-results-body">
+                <div class="empty"><span class="empty-icon">🤖</span>Run an analysis to see results</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 
   <script>
     const API = '';
-    const S = { scanning: false, currentTs: null, currentProv: 'AWS', counts: { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0 }, extCounts: {}, blobUrls: [], keywordCounts: {}, filterKw: null, history: [], outputDirs: [], schedules: [] };
+    const S = { scanning: false, currentTs: null, currentProv: 'AWS', counts: { AWS: 0, Azure: 0, GCP: 0, DigitalOcean: 0 }, extCounts: {}, blobUrls: [], keywordCounts: {}, filterKw: null, history: [], outputDirs: [], schedules: [], aiResults: null, aiFilterCat: null };
     const COLORS = { AWS: '#ff9100', Azure: '#29b6f6', GCP: '#66bb6a', DigitalOcean: '#5c6bc0' };
     const PLABELS = { AWS: 'AWS S3', Azure: 'Azure Blob', GCP: 'Google Cloud', DigitalOcean: 'DigitalOcean' };
-    const PMETA = { overview: { title: 'Overview', crumb: 'cloud-pearser / overview' }, scan: { title: 'New Scan', crumb: 'cloud-pearser / scan' }, buckets: { title: 'Buckets', crumb: 'cloud-pearser / buckets' }, azure: { title: 'Azure Enumeration', crumb: 'cloud-pearser / azure-enum' }, files: { title: 'Output Files', crumb: 'cloud-pearser / files' }, history: { title: 'History', crumb: 'cloud-pearser / history' }, schedules: { title: 'Schedules', crumb: 'cloud-pearser / schedules' } };
+    const PMETA = { overview: { title: 'Overview', crumb: 'cloud-pearser / overview' }, scan: { title: 'New Scan', crumb: 'cloud-pearser / scan' }, buckets: { title: 'Buckets', crumb: 'cloud-pearser / buckets' }, azure: { title: 'Azure Enumeration', crumb: 'cloud-pearser / azure-enum' }, files: { title: 'Output Files', crumb: 'cloud-pearser / files' }, history: { title: 'History', crumb: 'cloud-pearser / history' }, schedules: { title: 'Schedules', crumb: 'cloud-pearser / schedules' }, ai: { title: 'AI Analysis', crumb: 'cloud-pearser / ai-analysis' } };
+    const AI_CAT_COLORS = { finance:'#26c6da', healthcare:'#ef5350', government:'#5c6bc0', technology:'#66bb6a', media:'#ab47bc', retail:'#ff9100', education:'#ffd600', legal:'#8d6e63', personal_data:'#f44336', general:'var(--ink3)' };
 
     // ── Theme toggle ─────────────────────────────────────────────────────────
     (function () { const t = localStorage.getItem('cp-theme') || 'dark'; _applyTheme(t) })();
@@ -1391,6 +1453,7 @@
       if (id === 'buckets') loadProviderData(S.currentProv);
       if (id === 'azure') loadAzureData();
       if (id === 'schedules') refreshSchedules();
+      if (id === 'ai') { _refreshAiScanSelect(); if (S.currentTs) loadCachedAiResults(S.currentTs); }
     }
 
     async function apiFetch(path, opts = {}) {
@@ -1681,7 +1744,7 @@
     function fmtSize(b) { if (b < 1024) return b + 'B'; if (b < 1048576) return (b / 1024).toFixed(1) + 'KB'; return (b / 1048576).toFixed(1) + 'MB' }
 
     async function refreshHistory() {
-      try { const d = await apiFetch('/api/history'); S.history = d.history || []; renderHistory() }
+      try { const d = await apiFetch('/api/history'); S.history = d.history || []; renderHistory(); _refreshAiScanSelect(); }
       catch (e) { console.warn('history:', e) }
     }
 
@@ -1787,7 +1850,7 @@
         <button class="btn btn-ghost btn-sm" onclick="toggleSchedule('${esc(s.id)}')">${enabled ? 'Pause' : 'Resume'}</button>
         <button class="btn btn-danger btn-sm" onclick="deleteSchedule('${esc(s.id)}')">✕</button>
       </div>
-      <div style="font-family:var(--mono);font-size:.62rem;color:var(--ink3);margin-bottom:3px">Every ${s.interval_hours}h · Last: ${esc(lastRun)} · Next: ${esc(nextRun)}</div>
+      <div style="font-family:var(--mono);font-size:.62rem;color:var(--ink3);margin-bottom:3px">Every ${s.interval_minutes!=null&&!s.interval_hours?s.interval_minutes+'m':s.interval_hours+'h'} · Last: ${esc(lastRun)} · Next: ${esc(nextRun)}</div>
       <div style="font-family:var(--mono);font-size:.6rem;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Keywords: ${esc(kwPreview)}</div>
     </div>`;
       }).join('');
@@ -1796,16 +1859,21 @@
     async function createSchedule() {
       const name = document.getElementById('sched-name').value.trim() || 'Scheduled Scan';
       const keywords = document.getElementById('sched-keywords').value.trim();
-      const intervalHours = parseInt(document.getElementById('sched-interval').value) || 24;
+      const intervalVal = parseInt(document.getElementById('sched-interval').value) || 1;
+      const intervalUnit = document.getElementById('sched-interval-unit').value;
       const apiKey = document.getElementById('sched-api-key').value.trim();
       const runNow = document.getElementById('sched-run-now').checked;
       if (!keywords) { alert('Keywords required'); return }
+      const body = intervalUnit === 'minutes'
+        ? { name, keywords, interval_minutes: intervalVal, api_key: apiKey }
+        : { name, keywords, interval_hours: intervalVal, api_key: apiKey };
       const btn = document.getElementById('sched-add-btn'); btn.disabled = true;
       try {
-        await apiFetch('/api/schedules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, keywords, interval_hours: intervalHours, api_key: apiKey }) });
+        await apiFetch('/api/schedules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         document.getElementById('sched-name').value = '';
         document.getElementById('sched-keywords').value = '';
         document.getElementById('sched-interval').value = '24';
+        document.getElementById('sched-interval-unit').value = 'hours';
         document.getElementById('sched-api-key').value = '';
         document.getElementById('sched-run-now').checked = false;
         await refreshSchedules();
@@ -1834,6 +1902,130 @@
     async function toggleSchedule(sid) {
       try { await apiFetch('/api/schedules/' + encodeURIComponent(sid) + '/toggle', { method: 'POST' }); await refreshSchedules() }
       catch (e) { alert('Error: ' + e.message) }
+    }
+
+    // ── AI Analysis ──────────────────────────────────────────────────────────
+    function onAiProviderChange() {
+      const p = document.getElementById('ai-provider').value;
+      document.getElementById('ai-model-label').textContent =
+        p === 'openai' ? 'Model (blank = gpt-4o-mini)' : 'Model (blank = facebook/bart-large-mnli)';
+      document.getElementById('ai-model').placeholder =
+        p === 'openai' ? 'e.g. gpt-4o-mini' : 'e.g. facebook/bart-large-mnli';
+    }
+
+    function _refreshAiScanSelect() {
+      const sel = document.getElementById('ai-scan-select');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— select a scan —</option>' +
+        S.history.map(h => `<option value="${esc(h.ts)}"${h.ts === cur ? ' selected' : ''}>${esc(h.ts)} (${h.total || 0} files)</option>`).join('');
+    }
+
+    async function runAiAnalysis() {
+      const ts = document.getElementById('ai-scan-select').value;
+      if (!ts) { alert('Select a scan first'); return }
+      const provider = document.getElementById('ai-provider').value;
+      const apiKey = document.getElementById('ai-api-key').value.trim();
+      if (!apiKey) { alert('API key is required'); return }
+      const model = document.getElementById('ai-model').value.trim();
+      const limit = parseInt(document.getElementById('ai-limit').value) || 100;
+
+      const btn = document.getElementById('ai-run-btn');
+      const status = document.getElementById('ai-status');
+      btn.disabled = true;
+      status.style.display = '';
+      status.textContent = `Classifying buckets via ${provider}… this may take up to ${Math.ceil(limit * 0.4)}s`;
+      document.getElementById('ai-results-body').innerHTML =
+        '<div class="empty"><span class="empty-icon">⏳</span>Analyzing…</div>';
+
+      try {
+        const data = await apiFetch(`/api/outputs/${encodeURIComponent(ts)}/ai-analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, api_key: apiKey, model, limit })
+        });
+        if (data.error) throw new Error(data.error);
+        S.aiResults = data;
+        S.aiFilterCat = null;
+        status.textContent = `Done — ${data.total} buckets classified (${provider} · ${data.model})`;
+        renderAiResults();
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        document.getElementById('ai-results-body').innerHTML =
+          `<div class="empty" style="color:var(--r)">Error: ${esc(e.message)}</div>`;
+      }
+      btn.disabled = false;
+    }
+
+    async function loadCachedAiResults(ts) {
+      if (!ts) return;
+      try {
+        const d = await apiFetch(`/api/outputs/${encodeURIComponent(ts)}/ai-results`);
+        if (d.cached && d.results) {
+          S.aiResults = d; S.aiFilterCat = null;
+          document.getElementById('ai-scan-select').value = ts;
+          document.getElementById('ai-status').style.display = '';
+          document.getElementById('ai-status').textContent =
+            `Cached — ${d.total} buckets (${d.provider} · ${d.model})`;
+          renderAiResults();
+        }
+      } catch (e) { /* no cached results, that's fine */ }
+    }
+
+    function renderAiResults() {
+      const d = S.aiResults;
+      if (!d || !d.results) return;
+      const results = S.aiFilterCat
+        ? d.results.filter(r => r.label === S.aiFilterCat)
+        : d.results;
+
+      // Category summary chips + filter
+      const cats = d.category_counts || {};
+      const filterDiv = document.getElementById('ai-category-filter');
+      filterDiv.style.display = 'flex';
+      filterDiv.innerHTML = [
+        `<button class="btn btn-sm ${!S.aiFilterCat ? 'btn-primary' : 'btn-ghost'}" onclick="aiFilterBy(null)">All (${d.total})</button>`,
+        ...Object.entries(cats).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+          .map(([cat, n]) => `<button class="btn btn-sm ${S.aiFilterCat === cat ? 'btn-primary' : 'btn-ghost'}"
+            onclick="aiFilterBy('${cat}')"
+            style="${S.aiFilterCat === cat ? '' : `border-color:${AI_CAT_COLORS[cat]||'var(--edge)'}`}">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${AI_CAT_COLORS[cat]||'var(--ink3)'};margin-right:4px"></span>${cat} (${n})</button>`)
+      ].join('');
+
+      document.getElementById('ai-result-meta').textContent =
+        `${results.length} / ${d.total} buckets`;
+
+      if (!results.length) {
+        document.getElementById('ai-results-body').innerHTML =
+          '<div class="empty"><span class="empty-icon">🔍</span>No results for this filter</div>';
+        return;
+      }
+
+      document.getElementById('ai-results-body').innerHTML =
+        `<table style="width:100%;border-collapse:collapse;font-size:.72rem">
+          <thead><tr>
+            <th style="text-align:left;padding:5px 4px;border-bottom:1px solid var(--edge);color:var(--ink3);font-weight:400">Bucket / URL</th>
+            <th style="text-align:left;padding:5px 4px;border-bottom:1px solid var(--edge);color:var(--ink3);font-weight:400;width:110px">Category</th>
+            <th style="text-align:right;padding:5px 4px;border-bottom:1px solid var(--edge);color:var(--ink3);font-weight:400;width:56px">Score</th>
+          </tr></thead>
+          <tbody>${results.map(r => {
+            const col = AI_CAT_COLORS[r.label] || 'var(--ink3)';
+            const err = r.error ? `<div style="color:var(--r);font-size:.6rem">${esc(r.error)}</div>` : '';
+            return `<tr style="border-bottom:1px solid var(--edge)">
+              <td style="padding:5px 4px;word-break:break-all;max-width:0">${esc(r.bucket)}${err}</td>
+              <td style="padding:5px 4px">
+                <span style="display:inline-flex;align-items:center;gap:4px;background:${col}22;border:1px solid ${col}55;border-radius:4px;padding:2px 7px;color:${col};font-size:.62rem;white-space:nowrap">
+                  <span style="width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0"></span>${esc(r.label)}
+                </span>
+              </td>
+              <td style="padding:5px 4px;text-align:right;color:var(--ink3)">${r.score ? (r.score * 100).toFixed(0) + '%' : '—'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>`;
+    }
+
+    function aiFilterBy(cat) {
+      S.aiFilterCat = cat;
+      renderAiResults();
     }
 
     document.addEventListener('DOMContentLoaded', async () => {

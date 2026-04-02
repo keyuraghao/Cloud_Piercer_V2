@@ -1,0 +1,12 @@
+{
+  "20260301161152823561": {
+    "id": "20260301161152823561",
+    "name": "Scheduled Scan",
+    "keywords": "netflix",
+    "api_key": "fc247c3bba251126354cab7a0ba4c92a",
+    "enabled": false,
+    "created": "2026-03-01T16:11:52.823604",
+    "last_run": "2026-03-01T16:26:52.824411",
+    "interval_minutes": 5
+  }
+}

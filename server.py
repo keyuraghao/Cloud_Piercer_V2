@@ -18,15 +18,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
-import os
 import queue
 import shutil
 import sys
 import multiprocessing
 import threading
-import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -40,7 +37,7 @@ try:
     )
     # flask_cors not needed
 except ImportError:
-    print("[ERROR] Flask not installed. Run:  pip install flask flask-cors")
+    print("[ERROR] Flask not installed. Run:  pip install flask")
     sys.exit(1)
 
 # ── APScheduler (optional – needed for scheduled scans) ───────────────────
@@ -59,7 +56,7 @@ from cloud_pearser.config import (
     EXTENSIONS_FILE,
     KEYWORDS_FILE,
 )
-from cloud_pearser.parsers import build_provider_csvs, build_unique, enumerate_azure
+# parsers are imported locally inside _run_scan_process (runs in child process)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -75,7 +72,6 @@ def _add_cors(r):
     r.headers["Access-Control-Allow-Headers"] = "Content-Type"
     r.headers["Access-Control-Allow-Methods"] = "GET,POST,DELETE,OPTIONS"
     return r
-# CORS handled via after_request
 
 # Active scans – keyed by scan_id (= timestamp string).
 # Each entry: {"id", "state", "sse_queue", "process"}
@@ -137,10 +133,15 @@ def _register_schedule(sid: str, sched: dict) -> None:
         _scheduler.remove_job(sid)
     except Exception:
         pass
-    hours = max(1, int(sched.get("interval_hours", 24)))
+    if sched.get("interval_minutes"):
+        minutes = max(1, int(sched["interval_minutes"]))
+        trigger = IntervalTrigger(minutes=minutes)
+    else:
+        hours = max(1, int(sched.get("interval_hours", 24)))
+        trigger = IntervalTrigger(hours=hours)
     _scheduler.add_job(
         _run_scheduled_scan,
-        trigger=IntervalTrigger(hours=hours),
+        trigger=trigger,
         id=sid,
         args=[sid],
         replace_existing=True,
@@ -165,8 +166,6 @@ def _run_scheduled_scan(sid: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
-
-
 
 
 def _list_output_dirs() -> list[dict]:
@@ -782,22 +781,22 @@ def api_schedules_create():
     keywords = (data.get("keywords") or "").strip()
     if not keywords:
         return jsonify({"error": "Keywords required"}), 400
-    try:
-        interval_hours = max(1, int(data.get("interval_hours", 24)))
-    except (ValueError, TypeError):
-        return jsonify({"error": "interval_hours must be a positive integer"}), 400
     api_key = (data.get("api_key") or _DEFAULT_API_KEY).strip()
     sid = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    sched = {
-        "id": sid,
-        "name": name,
-        "keywords": keywords,
-        "api_key": api_key,
-        "interval_hours": interval_hours,
-        "enabled": True,
-        "created": datetime.now().isoformat(),
-        "last_run": None,
+    sched: dict = {
+        "id": sid, "name": name, "keywords": keywords, "api_key": api_key,
+        "enabled": True, "created": datetime.now().isoformat(), "last_run": None,
     }
+    if data.get("interval_minutes"):
+        try:
+            sched["interval_minutes"] = max(1, int(data["interval_minutes"]))
+        except (ValueError, TypeError):
+            return jsonify({"error": "interval_minutes must be a positive integer"}), 400
+    else:
+        try:
+            sched["interval_hours"] = max(1, int(data.get("interval_hours", 24)))
+        except (ValueError, TypeError):
+            return jsonify({"error": "interval_hours must be a positive integer"}), 400
     _schedules[sid] = sched
     _save_schedules()
     _register_schedule(sid, sched)
@@ -839,6 +838,182 @@ def api_schedules_toggle(sid: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# AI bucket classification  (optional feature)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_AI_CATEGORIES = [
+    "finance", "healthcare", "government", "technology",
+    "media", "retail", "education", "legal", "personal_data", "general",
+]
+
+
+def _ai_classify_buckets(buckets: list, provider: str, api_key: str, model: str) -> list:
+    """
+    Classify a list of bucket names using a zero-shot AI model.
+    provider: 'huggingface' | 'openai'
+    Returns list of {bucket, label, score, scores} dicts.
+    """
+    import time as _time
+    results: list = []
+
+    if provider == "huggingface":
+        hf_model = model or "facebook/bart-large-mnli"
+        url = f"https://api-inference.huggingface.co/models/{hf_model}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        for bucket in buckets:
+            try:
+                resp = __import__("requests").post(
+                    url, headers=headers, timeout=30,
+                    json={"inputs": bucket,
+                          "parameters": {"candidate_labels": _AI_CATEGORIES,
+                                         "multi_label": False}},
+                )
+                if resp.status_code == 200:
+                    r = resp.json()
+                    if isinstance(r, dict) and "labels" in r:
+                        results.append({
+                            "bucket": bucket,
+                            "label": r["labels"][0],
+                            "score": round(r["scores"][0], 3),
+                            "scores": {l: round(s, 3)
+                                       for l, s in zip(r["labels"], r["scores"])},
+                        })
+                    else:
+                        results.append({"bucket": bucket, "label": "general",
+                                        "score": 0.0, "scores": {}})
+                elif resp.status_code == 503:
+                    # Model loading – wait and retry once
+                    _time.sleep(20)
+                    resp2 = __import__("requests").post(
+                        url, headers=headers, timeout=30,
+                        json={"inputs": bucket,
+                              "parameters": {"candidate_labels": _AI_CATEGORIES,
+                                             "multi_label": False}},
+                    )
+                    if resp2.status_code == 200:
+                        r = resp2.json()
+                        results.append({
+                            "bucket": bucket,
+                            "label": r.get("labels", ["general"])[0],
+                            "score": round(r.get("scores", [0])[0], 3),
+                            "scores": {l: round(s, 3)
+                                       for l, s in zip(r.get("labels", []),
+                                                       r.get("scores", []))},
+                        })
+                    else:
+                        results.append({"bucket": bucket, "label": "error",
+                                        "score": 0.0, "scores": {},
+                                        "error": f"Model not ready (HTTP {resp2.status_code})"})
+                else:
+                    results.append({"bucket": bucket, "label": "error", "score": 0.0,
+                                    "scores": {},
+                                    "error": f"HTTP {resp.status_code}: {resp.text[:120]}"})
+            except Exception as exc:
+                results.append({"bucket": bucket, "label": "error",
+                                 "score": 0.0, "scores": {}, "error": str(exc)})
+            _time.sleep(0.3)   # be kind to the free-tier rate limit
+
+    elif provider == "openai":
+        oai_model = model or "gpt-4o-mini"
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        cats_str = ", ".join(_AI_CATEGORIES)
+        batch_size = 10
+        for i in range(0, len(buckets), batch_size):
+            batch = buckets[i: i + batch_size]
+            prompt = (
+                f"Classify each cloud storage bucket name into exactly one category "
+                f"from: {cats_str}.\n"
+                f"Return ONLY valid JSON: "
+                f'{{\"results\": [{{\"bucket\": \"name\", \"label\": \"category\", \"score\": 0.95}}]}}\n\n'
+                f"Buckets:\n" + "\n".join(f"- {b}" for b in batch)
+            )
+            try:
+                resp = __import__("requests").post(
+                    url, headers=headers, timeout=60,
+                    json={"model": oai_model, "temperature": 0,
+                          "response_format": {"type": "json_object"},
+                          "messages": [{"role": "user", "content": prompt}]},
+                )
+                if resp.status_code == 200:
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    for item in json.loads(content).get("results", []):
+                        results.append({
+                            "bucket": item.get("bucket", ""),
+                            "label": item.get("label", "general"),
+                            "score": round(float(item.get("score", 0)), 3),
+                            "scores": {},
+                        })
+                else:
+                    for b in batch:
+                        results.append({"bucket": b, "label": "error", "score": 0.0,
+                                        "scores": {}, "error": f"HTTP {resp.status_code}"})
+            except Exception as exc:
+                for b in batch:
+                    results.append({"bucket": b, "label": "error",
+                                    "score": 0.0, "scores": {}, "error": str(exc)})
+
+    return results
+
+
+@app.route("/api/outputs/<ts>/ai-analyze", methods=["POST"])
+def api_ai_analyze(ts: str):
+    """Run AI classification on unique bucket names from a completed scan."""
+    d = _get_output_dir(ts)
+    if not d:
+        return jsonify({"error": "Scan not found"}), 404
+
+    data = request.get_json(force=True) or {}
+    provider = data.get("provider", "huggingface").lower()
+    api_key  = (data.get("api_key") or "").strip()
+    model    = (data.get("model") or "").strip()
+    limit    = min(int(data.get("limit", 100)), 200)
+
+    if provider not in ("huggingface", "openai"):
+        return jsonify({"error": "provider must be 'huggingface' or 'openai'"}), 400
+    if not api_key:
+        return jsonify({"error": "api_key is required"}), 400
+
+    unique_files = sorted(d.glob("Unique_*.txt"))
+    if not unique_files:
+        return jsonify({"error": "No unique-buckets file found for this scan. "
+                                  "Make sure the scan completed successfully."}), 404
+
+    buckets = [l.strip() for l in unique_files[0].read_text().splitlines()
+               if l.strip()][:limit]
+    if not buckets:
+        return jsonify({"error": "No buckets found in scan output"}), 404
+
+    results = _ai_classify_buckets(buckets, provider, api_key, model)
+
+    category_counts = {cat: sum(1 for r in results if r.get("label") == cat)
+                       for cat in _AI_CATEGORIES}
+    out = {
+        "timestamp": ts,
+        "provider": provider,
+        "model": model or ("facebook/bart-large-mnli"
+                           if provider == "huggingface" else "gpt-4o-mini"),
+        "total": len(results),
+        "category_counts": category_counts,
+        "results": results,
+    }
+    (d / f"ai_analysis_{ts}.json").write_text(json.dumps(out, indent=2))
+    return jsonify(out)
+
+
+@app.route("/api/outputs/<ts>/ai-results")
+def api_ai_results(ts: str):
+    """Return cached AI analysis results for a scan (if analysis was run before)."""
+    d = _get_output_dir(ts)
+    if not d:
+        return jsonify({"error": "Not found"}), 404
+    files = sorted(d.glob("ai_analysis_*.json"))
+    if not files:
+        return jsonify({"cached": False, "results": None})
+    return jsonify({**json.loads(files[0].read_text()), "cached": True})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Serve the dashboard HTML
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -867,11 +1042,18 @@ def main():
     _load_history_from_disk()
     _load_schedules()
 
+    if not _DEFAULT_API_KEY:
+        print("\n  [WARN] GRAYHATWARFARE_API_KEY is not set.")
+        print("         Copy .env.example → .env and add your API key,")
+        print("         or export GRAYHATWARFARE_API_KEY=<your_key>\n")
+
     url = f"http://{args.host}:{args.port}"
     print(f"\n  Cloud Pearser Dashboard")
-    print(f"  ─────────────────────────────────")
-    print(f"  URL:  {url}")
-    print(f"  Stop: Ctrl+C\n")
+    print(f"  ─────────────────────────────────────────────")
+    print(f"  URL   : {url}")
+    print(f"  API   : {'set' if _DEFAULT_API_KEY else 'NOT SET – configure in UI or .env'}")
+    print(f"  Sched : {'APScheduler ready' if _APScheduler_available else 'not available (pip install APScheduler)'}")
+    print(f"  Stop  : Ctrl+C\n")
 
     if not args.no_browser:
         # Slight delay so Flask is ready before the browser hits it
